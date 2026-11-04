@@ -68,12 +68,17 @@ Workout loads remain canonical kilograms in the API/database; the interface conv
 
 Release 1.0.2/code 3 includes this extension and reuses the same private release key, allowing an in-place update from 1.0.1.
 
+Phone verification of release 1.0.2 succeeded: the update preserved the signed-in account and plan, KG/LB changed and persisted, a 100 lb × 8 set saved once, and switching back showed 45.36 kg × 8. A separate server session confirmed the saved value was 45.359237 kg and earlier records were unchanged. The workout was finished. The pound calculator showed two 45 lb plates per side for a 225 lb total including its 45 lb bar. Camera denial showed the Android-specific instructions, retry restored the live preview, and rotation returned to portrait without an app crash.
+
+The user requested a horizontally mirrored camera preview. Release 1.0.3/code 4 mirrors video and pose overlay together in CSS, keeping inference coordinates unchanged. The 18 camera regression tests passed. Physical rep accuracy remains the user's manual test.
+
+The phone library was inspected at Android font scale 1.3 in both themes. Its two columns, wrapped exercise names, badges and favorite buttons remained readable. The original 1.0 font scale and portrait rotation settings were restored after testing.
+
 Evidence is stored locally under artifacts/android. Camera frames, file-picker screenshots, credentials and test-account data are excluded from source control and submission screenshots.
 
 ## Remaining checks
 
 - Compare counted reps with observed physical push-ups. The user explicitly deferred this test in favor of other checks.
-- Complete enlarged-text and final camera landscape checks in the signed release.
 - Test the free backend's natural idle wake-up. Automated safe health-retry and failed-save/draft tests pass, but they do not replace this real-network check.
 - Password change/account deletion were not exercised through the phone UI during this run. Do not present them as device-tested.
 - Build/sign a release APK and collect final submission evidence. The current APK is a development build.

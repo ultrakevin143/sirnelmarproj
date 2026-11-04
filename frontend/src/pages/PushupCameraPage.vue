@@ -876,6 +876,8 @@ canvas {
   position: absolute;
   inset: 0;
   object-fit: contain;
+  /* Mirror both layers together; inference keeps the original camera coordinates. */
+  transform: scaleX(-1);
 }
 .preview-video-idle {
   visibility: hidden;

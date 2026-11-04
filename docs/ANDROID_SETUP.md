@@ -55,7 +55,7 @@ Later builds reuse that identity:
 node scripts/build-android.mjs --release
 ```
 
-The release output is artifacts/android/LiftUp-release.apk. Gradle refuses a release task without signing credentials. The release is not debuggable. The current version is 1.0.2 (version code 3); increase the version code before distributing a later update.
+The release output is artifacts/android/LiftUp-release.apk. Gradle refuses a release task without signing credentials. The release is not debuggable. The current version is 1.0.3 (version code 4); increase the version code before distributing a later update.
 
 The generated keystore and private configuration are stored in .tools/signing, which is excluded from Git and deployment. Keep a secure backup of both files. Never upload the signing backup, keystore or password configuration to the repository or an assignment. Losing the key prevents installing future updates over this release. When restoring the backup on another workstation, update keystorePath in the private configuration to its new absolute location.
 
