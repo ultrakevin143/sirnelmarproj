@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { defineComponent, h } from 'vue';
 import { mount } from '@vue/test-utils';
-import { calculatePlates } from '../src/utils/plateCalculator';
+import { calculatePlateLoad, calculatePlates } from '../src/utils/plateCalculator';
 import { createRestChime } from '../src/utils/restChime';
 import { useRestTimer } from '../src/composables/useRestTimer';
 
@@ -13,6 +13,24 @@ afterEach(() => {
 });
 
 describe('20kg barbell plate calculator', () => {
+  it('uses a 45 lb bar and real pound plates with exact symmetric totals', () => {
+    expect(calculatePlateLoad(45, 'lb').plates).toEqual([]);
+    expect(calculatePlateLoad(225, 'lb').plates).toEqual([{ weight: 45, count: 2 }]);
+    expect(calculatePlateLoad(100, 'lb').plates).toEqual([
+      { weight: 25, count: 1 },
+      { weight: 2.5, count: 1 },
+    ]);
+    for (let total = 45; total <= 2200; total += 5) {
+      const result = calculatePlateLoad(total, 'lb');
+      expect(result.error).toBe('');
+      expect(
+        45 + 2 * result.plates.reduce((sum, plate) => sum + plate.count * plate.weight, 0),
+      ).toBe(total);
+    }
+    for (const total of [0, 44, 46, 100.1, NaN, Infinity, 2201]) {
+      expect(calculatePlateLoad(total, 'lb').error).not.toBe('');
+    }
+  });
   it('handles an empty bar and computes exact symmetric plates', () => {
     expect(calculatePlates(20).plates).toEqual([]);
     expect(calculatePlates(100).plates).toEqual([{ weightKg: 20, count: 2 }]);

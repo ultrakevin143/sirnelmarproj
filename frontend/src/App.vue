@@ -36,7 +36,7 @@ onMounted(() => {
 <style scoped>
 .connection-notice {
   position: fixed;
-  top: calc(12px + env(safe-area-inset-top, 0px));
+  top: calc(12px + var(--q-safe-area-inset-top, env(safe-area-inset-top, 0px)));
   right: 12px;
   z-index: 7000;
   max-width: min(360px, calc(100vw - 24px));
@@ -50,6 +50,12 @@ onMounted(() => {
 }
 .connection-notice p {
   margin: 0;
+}
+@media (max-width: 1023px) {
+  .connection-notice {
+    top: auto;
+    bottom: calc(12px + var(--liftup-bottom-clearance));
+  }
 }
 .connection-notice button {
   margin-top: 10px;

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { Capacitor } from '@capacitor/core';
 import {
   PushupCounter,
   observePushup,
@@ -321,5 +322,18 @@ describe('camera lifecycle without hardware access', () => {
     expect(fixture.errors).toHaveBeenCalledWith(expect.stringContaining('permission was denied'));
     expect(fixture.worker.terminate).toHaveBeenCalledOnce();
     expect(fixture.video.srcObject).toBeNull();
+  });
+  it('shows Android permission recovery instructions in the installed app', async () => {
+    vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
+    const fixture = cameraFixture(() =>
+      Promise.reject(new DOMException('Denied', 'NotAllowedError')),
+    );
+    const start = fixture.camera.start();
+    fixture.ready();
+    await start;
+    expect(fixture.errors).toHaveBeenCalledWith(
+      expect.stringContaining('Android Settings > Apps > LiftUp > Permissions'),
+    );
+    expect(fixture.worker.terminate).toHaveBeenCalledOnce();
   });
 });

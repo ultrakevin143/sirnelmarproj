@@ -20,6 +20,7 @@ frontend/public/workout-guide/
 frontend/quasar.config.*.temporary.compiled*
 frontend/src-capacitor/www/
 **/.gradle/
+**/.kotlin/
 **/build/
 
 # Local evidence and editor files

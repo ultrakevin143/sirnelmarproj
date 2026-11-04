@@ -5,6 +5,7 @@ import RestTimerPanel from './RestTimerPanel.vue';
 import SessionDetailPanel from './SessionDetailPanel.vue';
 import type { RestTimerState } from '@/composables/useRestTimer';
 import { useTrainingPreferences } from '@/composables/useTrainingPreferences';
+import WeightUnitToggle from './WeightUnitToggle.vue';
 import { completedWorkingSets, scheduledWorkingSets, movementComplete } from '@/utils/setProgress';
 const { massUnit, toDisplay, fromDisplay, formatLoad } = useTrainingPreferences();
 
@@ -255,6 +256,7 @@ function formatDuration(sec: number): string {
           </p>
           <form class="set-input-section" @submit.prevent="handleLogSet(item.id)">
             <h3>Log your next set</h3>
+            <WeightUnitToggle class="q-mb-md" />
             <div class="set-input-row">
               <q-input
                 :model-value="toDisplay(draftFor(item.id).weightKg)"
@@ -262,7 +264,7 @@ function formatDuration(sec: number): string {
                 outlined
                 type="number"
                 min="0"
-                step="0.5"
+                step="any"
                 :label="`Weight (${massUnit})`"
                 :disable="sessionBusy"
                 :aria-label="`Weight in ${massUnit}`"
@@ -373,7 +375,7 @@ function formatDuration(sec: number): string {
                   dense
                   type="number"
                   min="0"
-                  step="0.5"
+                  step="any"
                   :disable="sessionBusy"
                   :aria-label="`${item.exerciseName} set ${set.setNumber} weight in ${massUnit}`"
                 />
@@ -901,9 +903,7 @@ button:focus-visible {
   }
   .workout-timer {
     width: 100%;
-    position: sticky;
-    top: 64px;
-    z-index: 10;
+    position: static;
   }
   .movement-queue {
     display: flex;

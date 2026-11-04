@@ -2,6 +2,8 @@
 import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue';
 import { useRouter, useRoute, onBeforeRouteLeave } from 'vue-router';
 import axios from 'axios';
+import { Capacitor } from '@capacitor/core';
+import { exportFile } from '@/utils/exportFile';
 import { useAuth, type UserProfile } from '@/composables/useAuth';
 import { preferenceIssue, preferencesEqual } from '@/utils/trainingPreferences';
 import { LiftUpConnectionError } from '@/utils/apiAvailability';
@@ -12,9 +14,10 @@ import {
 } from '@/composables/useTrainingPreferences';
 
 const { currentUser } = useAuth();
-const { preferences } = useTrainingPreferences();
+const { preferences, toDisplay, fromDisplay } = useTrainingPreferences();
 const router = useRouter();
 const route = useRoute();
+const selectBehavior = Capacitor.isNativePlatform() ? 'dialog' : 'menu';
 const setup = computed(() => route.query.setup === '1');
 const profile = reactive({
   name: currentUser.value?.name ?? '',
@@ -29,6 +32,18 @@ const deletion = reactive({ password: '', confirm: '' });
 const busy = ref('');
 const message = ref('');
 const error = ref('');
+const exporting = ref(false);
+async function exportHistory() {
+  if (exporting.value) return;
+  exporting.value = true;
+  try {
+    await exportFile('/api/v1/workouts/export.csv', 'liftup-workout-history.csv', 'text/csv');
+  } catch {
+    error.value = 'Could not export your history. Try again.';
+  } finally {
+    exporting.value = false;
+  }
+}
 const loaded = ref(false);
 const preferenceError = computed(() => preferenceIssue(draft));
 const preferencesDirty = computed(
@@ -205,6 +220,7 @@ const deleteAccount = () =>
           <div class="field-pair">
             <q-select
               v-model="draft.goal"
+              :behavior="selectBehavior"
               :options="goals"
               emit-value
               map-options
@@ -212,6 +228,7 @@ const deleteAccount = () =>
               label="Training goal"
             /><q-select
               v-model="draft.equipment"
+              :behavior="selectBehavior"
               :options="equipment"
               emit-value
               map-options
@@ -221,6 +238,7 @@ const deleteAccount = () =>
           </div>
           <q-select
             v-model="draft.trainingDays"
+            :behavior="selectBehavior"
             multiple
             :options="dayOptions"
             emit-value
@@ -238,7 +256,13 @@ const deleteAccount = () =>
               label="Minutes per session"
             /><q-select
               v-model="draft.massUnit"
-              :options="['kg', 'lb']"
+              :behavior="selectBehavior"
+              :options="[
+                { label: 'Kilograms (KG)', value: 'kg' },
+                { label: 'Pounds (LB)', value: 'lb' },
+              ]"
+              emit-value
+              map-options
               outlined
               label="Display weight in"
             />
@@ -263,13 +287,14 @@ const deleteAccount = () =>
               />
             </div>
             <q-input
-              v-model.number="draft.incrementKg"
+              :model-value="toDisplay(draft.incrementKg, draft.massUnit)"
+              @update:model-value="draft.incrementKg = fromDisplay($event, draft.massUnit) ?? 0"
               type="number"
-              min="0.25"
-              max="20"
-              step="0.25"
+              :min="draft.massUnit === 'lb' ? 0.56 : 0.25"
+              :max="draft.massUnit === 'lb' ? 44.09 : 20"
+              step="any"
               outlined
-              label="Load increase after reaching every target (kg)"
+              :label="`Load increase after reaching every target (${draft.massUnit})`"
               hint="Used for optional progression suggestions. Choose an increase your equipment supports."
             />
           </details>
@@ -295,7 +320,7 @@ const deleteAccount = () =>
             {{
               unsaved
                 ? 'Save your changes first so the preview matches the settings on this screen.'
-                : 'Uses your saved preferences. Starting loads are left at 0 kg so you can choose your own.'
+                : `Uses your saved preferences. Starting loads are left at 0 ${preferences.massUnit} so you can choose your own.`
             }}
           </p>
         </div>
@@ -313,9 +338,16 @@ const deleteAccount = () =>
               autocomplete="name"
             /><q-select
               v-model="profile.experienceLevel"
-              :options="['beginner', 'intermediate', 'advanced']"
+              :options="[
+                { label: 'Beginner', value: 'beginner' },
+                { label: 'Intermediate', value: 'intermediate' },
+                { label: 'Advanced', value: 'advanced' },
+              ]"
+              emit-value
+              map-options
+              :behavior="selectBehavior"
               outlined
-              label="Experience"
+              label="Experience level"
             /><q-btn
               type="submit"
               outline
@@ -356,7 +388,13 @@ const deleteAccount = () =>
         <section class="settings-section">
           <h2>Your data</h2>
           <p>Download your training log before closing your account.</p>
-          <q-btn flat no-caps label="Export history CSV" href="/api/v1/workouts/export.csv" /><q-btn
+          <q-btn
+            flat
+            no-caps
+            label="Export history CSV"
+            @click="exportHistory"
+            :loading="exporting"
+          /><q-btn
             flat
             no-caps
             color="negative"

@@ -5,6 +5,10 @@ import axios from 'axios';
 import IndexPage from '../src/pages/IndexPage.vue';
 import ActiveWorkoutList from '../src/components/training/ActiveWorkoutList.vue';
 import SessionBar from '../src/components/training/SessionBar.vue';
+import WeeklyPlanSection from '../src/components/training/WeeklyPlanSection.vue';
+import PlanTemplatesDialog from '../src/components/training/PlanTemplatesDialog.vue';
+import ExerciseLibraryDialog from '../src/components/training/ExerciseLibraryDialog.vue';
+import LibraryPagination from '../src/components/training/LibraryPagination.vue';
 import { layoutHistory, layoutPlan, layoutSession } from './fixtures/workoutLayout';
 import type { LoggedSet } from '../src/types/workout';
 
@@ -62,6 +66,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   wrappers.splice(0).forEach((wrapper) => wrapper.unmount());
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1024 });
 });
 
 async function renderPage() {
@@ -85,6 +90,118 @@ async function renderPage() {
 }
 
 describe('workout page layout integration with mocked API', () => {
+  it('paginates the phone library in groups of six and resets after filtering or resizing', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 390 });
+    const base = vi.mocked(axios.get).getMockImplementation()!;
+    const items = Array.from({ length: 30 }, (_, i) => ({
+      id: `movement-${i}`,
+      slug: `movement-${i}`,
+      name: `Movement ${i}`,
+      primaryMuscle: 'Chest',
+      equipment: 'Barbell',
+      secondaryMuscles: [],
+      frames: [],
+      exerciseType: 'weight-reps',
+    }));
+    vi.mocked(axios.get).mockImplementation(async (url) =>
+      url === '/api/v1/exercises' ? { data: { exercises: items } } : base(url),
+    );
+    const wrapper = await renderPage();
+    await wrapper.vm.$router.replace('/app?tab=library');
+    await flushPromises();
+    expect(wrapper.findAll('.catalog-card')).toHaveLength(6);
+    const pager = wrapper.findAllComponents(LibraryPagination)[0]!;
+    expect(pager.props('pageCount')).toBe(5);
+    pager.vm.$emit('update:modelValue', 2);
+    await flushPromises();
+    expect(wrapper.findAll('.catalog-card')[0]!.text()).toContain('Movement 6');
+    expect(pager.props('rangeStart')).toBe(7);
+    wrapper.getComponent(ExerciseLibraryDialog).vm.$emit('update:search', 'Movement 29');
+    await flushPromises();
+    expect(pager.props('modelValue')).toBe(1);
+    expect(wrapper.findAll('.catalog-card')).toHaveLength(1);
+    wrapper.getComponent(ExerciseLibraryDialog).vm.$emit('update:search', '');
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 1200,
+    });
+    window.dispatchEvent(new Event('resize'));
+    await flushPromises();
+    expect(wrapper.findAll('.catalog-card')).toHaveLength(24);
+  });
+  it('opens the custom movement editor from the library page', async () => {
+    const wrapper = await renderPage();
+    await wrapper.vm.$router.replace('/app?tab=library');
+    await flushPromises();
+    const button = wrapper
+      .findAll('q-btn')
+      .find((item) => item.attributes('label') === 'Create Custom');
+    expect(button).toBeDefined();
+    await button!.trigger('click');
+    const library = wrapper.getComponent(ExerciseLibraryDialog);
+    expect(library.props('modelValue')).toBe(true);
+    expect(library.props('customMode')).toBe(true);
+  });
+
+  it('opens saved programs, saves the current week and requires a preview before applying', async () => {
+    const wrapper = await renderPage();
+    await wrapper.vm.$router.replace('/app?tab=plan');
+    await flushPromises();
+    const template = {
+      id: 42,
+      name: 'Phone strength',
+      exerciseCount: 2,
+      createdAt: '',
+      updatedAt: '',
+    };
+    vi.mocked(axios.get).mockResolvedValueOnce({ data: { templates: [] } });
+    wrapper.getComponent(WeeklyPlanSection).vm.$emit('openTemplates');
+    await flushPromises();
+    const dialog = wrapper.getComponent(PlanTemplatesDialog);
+    expect(dialog.props('modelValue')).toBe(true);
+    expect(axios.get).toHaveBeenCalledWith('/api/v1/plans/templates');
+    vi.mocked(axios.post).mockResolvedValueOnce({ data: { template } });
+    dialog.vm.$emit('saveTemplate', template.name);
+    await flushPromises();
+    expect(dialog.props('templates')).toEqual([template]);
+    dialog.vm.$emit('applyTemplate', 42);
+    await flushPromises();
+    expect(axios.post).not.toHaveBeenCalledWith(
+      '/api/v1/plans/templates/42/apply',
+      expect.anything(),
+    );
+    vi.mocked(axios.get).mockResolvedValueOnce({
+      data: {
+        valid: true,
+        template,
+        plan: layoutPlan(),
+        exerciseCount: 2,
+        warning: 'Replaces plan',
+      },
+    });
+    dialog.vm.$emit('previewTemplate', 42);
+    await flushPromises();
+    expect(dialog.props('preview')?.template.id).toBe(42);
+    vi.mocked(axios.post).mockResolvedValueOnce({ data: { plan: layoutPlan() } });
+    dialog.vm.$emit('applyTemplate', 42);
+    await flushPromises();
+    expect(axios.post).toHaveBeenCalledWith('/api/v1/plans/templates/42/apply', { confirm: true });
+    expect(dialog.props('modelValue')).toBe(false);
+  });
+
+  it('keeps saved programs open with a recoverable error when loading fails', async () => {
+    const wrapper = await renderPage();
+    await wrapper.vm.$router.replace('/app?tab=plan');
+    await flushPromises();
+    vi.mocked(axios.get).mockRejectedValueOnce(new Error('Offline'));
+    wrapper.getComponent(WeeklyPlanSection).vm.$emit('openTemplates');
+    await flushPromises();
+    const dialog = wrapper.getComponent(PlanTemplatesDialog);
+    expect(dialog.props('modelValue')).toBe(true);
+    expect(dialog.props('loading')).toBe(false);
+    expect(dialog.props('errorMessage')).toContain('Could not load');
+  });
   it('keeps a note typed while an earlier note save is in flight', async () => {
     const wrapper = await renderPage();
     const active = wrapper.getComponent(ActiveWorkoutList);

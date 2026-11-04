@@ -1,6 +1,10 @@
 <template>
   <q-page class="workout-page">
     <div class="page-shell">
+      <WeightUnitToggle
+        v-if="activeTab === 'plan' || (activeTab === 'workout' && !activeSession)"
+        class="q-mb-lg"
+      />
       <!-- TAB 1: WORKOUT (Training Mode) -->
       <section v-if="activeTab === 'workout'" class="tab-view workout-view">
         <div
@@ -265,6 +269,7 @@
           :guide-asset-url="guideAssetUrl"
           @update:selected-day-index="selectedDayIndex = $event"
           @export-plan="exportPlan"
+          @open-templates="openTemplates"
           @import-plan="openImportPicker"
           @reset-plan="resetPlanOpen = true"
           @retry-load="loadPlan"
@@ -305,7 +310,7 @@
             color="primary"
             icon="add"
             label="Create Custom"
-            @click="chooseCustomMode"
+            @click="openCustomLibrary"
           />
         </header>
 
@@ -363,7 +368,23 @@
           />
         </div>
         <!-- Exercise Grid -->
-        <div v-if="paginatedExercises.length" class="catalog-grid">
+        <div ref="libraryResults" class="library-results-anchor">
+          <LibraryPagination
+            v-if="!loading && filteredExercises.length"
+            :model-value="exercisePage"
+            :page-count="exercisePageCount"
+            :range-start="exerciseRangeStart"
+            :range-end="exerciseRangeEnd"
+            :total="filteredExercises.length"
+            @update:model-value="changeLibraryPage"
+          />
+        </div>
+        <p v-if="loading" role="status">Loading exercises…</p>
+        <div v-else-if="errorMessage" class="catalog-empty" role="alert">
+          <p>{{ errorMessage }}</p>
+          <q-btn flat no-caps label="Try again" @click="loadExercises" />
+        </div>
+        <div v-else-if="paginatedExercises.length" class="catalog-grid">
           <div v-for="item in paginatedExercises" :key="item.id" class="catalog-card">
             <button
               type="button"
@@ -372,8 +393,8 @@
               @click="openExercise(item)"
             >
               <img
-                v-if="item.source === 'catalog'"
-                :src="guideAssetUrl(item.slug, 1)"
+                v-if="item.source === 'catalog' || item.imageUrl"
+                :src="item.source === 'catalog' ? guideAssetUrl(item.slug, 1) : item.imageUrl"
                 :alt="item.name"
                 class="catalog-thumb"
                 loading="lazy"
@@ -410,21 +431,22 @@
             @click="
               search = '';
               selectedMuscle = 'All';
+              selectedEquipment = null;
+              libraryScope = 'all';
             "
           />
         </div>
 
         <!-- Pagination -->
-        <div v-if="exercisePageCount > 1" class="catalog-pagination">
-          <q-pagination
-            v-model="exercisePage"
-            :max="exercisePageCount"
-            :max-pages="6"
-            direction-links
-            flat
-            color="primary"
-          />
-        </div>
+        <LibraryPagination
+          v-if="!loading && exercisePageCount > 1"
+          :model-value="exercisePage"
+          :page-count="exercisePageCount"
+          :range-start="exerciseRangeStart"
+          :range-end="exerciseRangeEnd"
+          :total="filteredExercises.length"
+          @update:model-value="changeLibraryPage"
+        />
       </section>
     </div>
 
@@ -523,6 +545,20 @@
 
     <ResetPlanDialog v-model="resetPlanOpen" :plan-busy="planBusy" @confirm="resetWeeklyPlan" />
     <PlateCalculatorDialog v-model="plateCalculatorOpen" />
+    <PlanTemplatesDialog
+      v-model="templatesOpen"
+      :templates="templates"
+      :loading="templatesLoading"
+      :busy="templateBusy"
+      :preview="templatePreview"
+      :error-message="templateError"
+      @retry="loadTemplates"
+      @save-template="saveTemplate"
+      @preview-template="previewTemplate"
+      @apply-template="applyTemplate"
+      @delete-template="deleteTemplate"
+      @clear-preview="templatePreview = null"
+    />
 
     <q-dialog v-model="finishReviewOpen" :persistent="sessionBusy"
       ><q-card class="finish-review"
@@ -581,9 +617,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
+import { exportFile, authenticatedImageUrl } from '@/utils/exportFile';
 import { getAssetUrl, type Exercise, type ExerciseType } from '@bryllim/workout-guide';
 import { useRestTimer } from '@/composables/useRestTimer';
 import { buildPreviousPerformances } from '@/utils/workoutLayout';
@@ -596,6 +633,8 @@ import type {
   LoggedSet,
   PlanImportPreview,
   PlannedExercise,
+  PlanTemplate,
+  PlanTemplatePreview,
   WeeklyPlan,
   WorkoutSession,
 } from '@/types/workout';
@@ -610,6 +649,9 @@ import ExerciseLibraryDialog from '@/components/training/ExerciseLibraryDialog.v
 import ImportPreviewDialog from '@/components/training/ImportPreviewDialog.vue';
 import ResetPlanDialog from '@/components/training/ResetPlanDialog.vue';
 import PlateCalculatorDialog from '@/components/training/PlateCalculatorDialog.vue';
+import PlanTemplatesDialog from '@/components/training/PlanTemplatesDialog.vue';
+import LibraryPagination from '@/components/training/LibraryPagination.vue';
+import WeightUnitToggle from '@/components/training/WeightUnitToggle.vue';
 import { useAuth } from '@/composables/useAuth';
 
 const { isBeginner, currentUser } = useAuth();
@@ -669,6 +711,12 @@ const planLoading = ref(true);
 const planBusy = ref(false);
 const resetPlanOpen = ref(false);
 const plateCalculatorOpen = ref(false);
+const templatesOpen = ref(false);
+const templates = ref<PlanTemplate[]>([]);
+const templatesLoading = ref(false);
+const templateBusy = ref(false);
+const templatePreview = ref<PlanTemplatePreview | null>(null);
+const templateError = ref('');
 const planError = ref('');
 const dayEditorOpen = ref(false);
 const dayDraft = reactive({ title: '', focus: '', isRestDay: false });
@@ -741,7 +789,16 @@ const metaDrafts = ref<
 const search = ref('');
 const selectedMuscle = ref('All');
 const exercisePage = ref(1);
-const exercisesPerPage = 24;
+const exercisesPerPage = ref(window.innerWidth <= 700 ? 6 : 24);
+const libraryResults = ref<HTMLElement | null>(null);
+function updateLibraryPageSize() {
+  exercisesPerPage.value = window.innerWidth <= 700 ? 6 : 24;
+}
+async function changeLibraryPage(page: number) {
+  exercisePage.value = page;
+  await nextTick();
+  libraryResults.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+}
 const sessionName = ref('Strength session');
 const selectedExercise = ref<CatalogExercise | null>(null);
 const selectedFrame = ref<1 | 2 | 3>(1);
@@ -1016,27 +1073,32 @@ const filteredExercises = computed(() => {
   });
 });
 const exercisePageCount = computed(() =>
-  Math.max(1, Math.ceil(filteredExercises.value.length / exercisesPerPage)),
+  Math.max(1, Math.ceil(filteredExercises.value.length / exercisesPerPage.value)),
 );
 const paginatedExercises = computed(() => {
-  const start = (exercisePage.value - 1) * exercisesPerPage;
-  return filteredExercises.value.slice(start, start + exercisesPerPage);
+  const start = (exercisePage.value - 1) * exercisesPerPage.value;
+  return filteredExercises.value.slice(start, start + exercisesPerPage.value);
 });
-const exerciseRangeStart = computed(() => (exercisePage.value - 1) * exercisesPerPage + 1);
+const exerciseRangeStart = computed(() => (exercisePage.value - 1) * exercisesPerPage.value + 1);
 const exerciseRangeEnd = computed(() =>
-  Math.min(exercisePage.value * exercisesPerPage, filteredExercises.value.length),
+  Math.min(exercisePage.value * exercisesPerPage.value, filteredExercises.value.length),
 );
-watch([search, selectedMuscle, selectedEquipment, libraryScope], () => {
+watch([search, selectedMuscle, selectedEquipment, libraryScope, exercisesPerPage], () => {
   exercisePage.value = 1;
 });
 watch(exercisePageCount, (pageCount) => {
   if (exercisePage.value > pageCount) exercisePage.value = pageCount;
 });
 const selectedExerciseImage = computed(() =>
-  selectedExercise.value ? guideAssetUrl(selectedExercise.value.slug, selectedFrame.value) : '',
+  selectedExercise.value?.source === 'custom'
+    ? selectedExercise.value.imageUrl
+    : selectedExercise.value
+      ? guideAssetUrl(selectedExercise.value.slug, selectedFrame.value)
+      : '',
 );
 
 onMounted(async () => {
+  window.addEventListener('resize', updateLibraryPageSize);
   window.addEventListener('online', connectionChanged);
   window.addEventListener('offline', connectionChanged);
   window.addEventListener('beforeunload', beforeLeave);
@@ -1046,6 +1108,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateLibraryPageSize);
   persistDrafts();
   window.removeEventListener('online', connectionChanged);
   window.removeEventListener('offline', connectionChanged);
@@ -1291,6 +1354,118 @@ function chooseCustomMode() {
   }
 }
 
+function openCustomLibrary() {
+  customMode.value = false;
+  chooseCustomMode();
+  planLibraryOpen.value = true;
+}
+
+async function openTemplates() {
+  templatesOpen.value = true;
+  templatePreview.value = null;
+  await loadTemplates();
+}
+
+async function loadTemplates() {
+  templatesLoading.value = true;
+  templateError.value = '';
+  try {
+    templates.value = (
+      await axios.get<{ templates: PlanTemplate[] }>('/api/v1/plans/templates')
+    ).data.templates;
+  } catch (error) {
+    templateError.value = getErrorMessage(error, 'Could not load saved programs. Try again.');
+  } finally {
+    templatesLoading.value = false;
+  }
+}
+
+async function saveTemplate(name: string) {
+  if (templateBusy.value) return;
+  templateBusy.value = true;
+  templateError.value = '';
+  try {
+    const response = await axios.post<{ template: PlanTemplate }>('/api/v1/plans/templates', {
+      name,
+    });
+    templates.value = [...templates.value, response.data.template].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+    notify('Weekly plan saved as a program.');
+  } catch (error) {
+    templateError.value = getErrorMessage(error, 'Could not save this program. Try again.');
+  } finally {
+    templateBusy.value = false;
+  }
+}
+
+async function previewTemplate(id: number) {
+  if (templateBusy.value) return;
+  templateBusy.value = true;
+  templateError.value = '';
+  try {
+    templatePreview.value = (
+      await axios.get<PlanTemplatePreview>(`/api/v1/plans/templates/${id}/preview`)
+    ).data;
+  } catch (error) {
+    templateError.value = getErrorMessage(error, 'Could not preview this program. Try again.');
+  } finally {
+    templateBusy.value = false;
+  }
+}
+
+async function applyTemplate(id: number) {
+  if (
+    templateBusy.value ||
+    !templatePreview.value?.valid ||
+    templatePreview.value.template.id !== id
+  )
+    return;
+  templateBusy.value = true;
+  templateError.value = '';
+  try {
+    acceptPlanResponse(
+      (
+        await axios.post<{ plan: WeeklyPlan }>(`/api/v1/plans/templates/${id}/apply`, {
+          confirm: true,
+        })
+      ).data,
+    );
+    templatesOpen.value = false;
+    templatePreview.value = null;
+    notify('Saved program applied to your week.');
+  } catch (error) {
+    templateError.value = getErrorMessage(
+      error,
+      'Could not apply this program. Your current plan was kept.',
+    );
+  } finally {
+    templateBusy.value = false;
+  }
+}
+
+async function deleteTemplate(id: number) {
+  const template = templates.value.find((item) => item.id === id);
+  if (
+    templateBusy.value ||
+    !template ||
+    !window.confirm(
+      `Delete saved program "${template.name}"? Your current plan and workout history will stay available.`,
+    )
+  )
+    return;
+  templateBusy.value = true;
+  templateError.value = '';
+  try {
+    await axios.delete(`/api/v1/plans/templates/${id}`);
+    templates.value = templates.value.filter((item) => item.id !== id);
+  } catch (error) {
+    templateError.value = getErrorMessage(error, 'Could not delete this saved program. Try again.');
+  } finally {
+    templateBusy.value = false;
+  }
+}
+
 async function addCustomExercise() {
   if (!customName.value.trim() || !customTarget.value.trim() || !customEquipment.value.trim())
     return;
@@ -1362,8 +1537,17 @@ async function archiveCustomExercise(exercise: CatalogExercise) {
   }
 }
 
-function exportPlan() {
-  window.location.assign('/api/v1/plans/default/export');
+const exportingPlan = ref(false);
+async function exportPlan() {
+  if (exportingPlan.value) return;
+  exportingPlan.value = true;
+  try {
+    await exportFile('/api/v1/plans/default/export', 'liftup-weekly-plan.json', 'application/json');
+  } catch (error) {
+    notify(getErrorMessage(error, 'Could not export your plan. Try again.'));
+  } finally {
+    exportingPlan.value = false;
+  }
 }
 
 function openImportPicker() {
@@ -1441,12 +1625,16 @@ async function loadExercises() {
         }
       >;
     }>('/api/v1/exercises');
-    exercises.value = response.data.exercises.map((exercise) => ({
-      ...exercise,
-      source: exercise.source ?? 'catalog',
-      imageUrl:
-        exercise.source === 'custom' ? (exercise.imageUrl ?? '') : guideAssetUrl(exercise.slug, 1),
-    }));
+    exercises.value = await Promise.all(
+      response.data.exercises.map(async (exercise) => ({
+        ...exercise,
+        source: exercise.source ?? 'catalog',
+        imageUrl:
+          exercise.source === 'custom'
+            ? await authenticatedImageUrl(exercise.imageUrl ?? '')
+            : guideAssetUrl(exercise.slug, 1),
+      })),
+    );
   } catch (error) {
     errorMessage.value = getErrorMessage(
       error,
@@ -2481,10 +2669,8 @@ function notify(message: string) {
   color: var(--text-muted);
 }
 
-.catalog-pagination {
-  display: flex;
-  justify-content: center;
-  margin-top: 28px;
+.library-results-anchor {
+  scroll-margin-top: calc(92px + var(--q-safe-area-inset-top, env(safe-area-inset-top, 0px)));
 }
 
 .visually-hidden {
@@ -2509,6 +2695,81 @@ function notify(message: string) {
 }
 
 @media (max-width: 700px) {
+  .catalog-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .catalog-card {
+    min-width: 0;
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .catalog-open {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .catalog-thumb {
+    aspect-ratio: 4 / 3;
+    padding: 6px;
+  }
+
+  .catalog-card .catalog-open .catalog-card-info {
+    padding-inline-end: 0;
+  }
+
+  .catalog-card-info h4 {
+    margin-top: 8px;
+    font-size: 14px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .catalog-badges > span {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .favorite-toggle {
+    position: static;
+    flex: 0 0 auto;
+    align-self: flex-end;
+  }
+
+  .beginner-banner {
+    margin-top: 16px;
+    padding: 16px;
+  }
+  .banner-top {
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .banner-title-group {
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .banner-title-group h4 {
+    line-height: 1.4;
+  }
+  .banner-badge {
+    white-space: nowrap;
+  }
+  .banner-close {
+    flex-shrink: 0;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .app-toast {
+    right: 12px;
+    bottom: calc(12px + var(--liftup-bottom-clearance));
+    max-width: calc(100vw - 24px);
+  }
+
   .workout-page {
     padding: 16px 14px 80px;
   }

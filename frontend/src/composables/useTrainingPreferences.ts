@@ -28,12 +28,12 @@ export function setTrainingPreferences(value?: Partial<TrainingPreferences>) {
 }
 export function useTrainingPreferences() {
   const massUnit = computed(() => preferences.value.massUnit);
-  const toDisplay = (kg: number | null | undefined) =>
-    kg == null ? null : Math.round(kg * (massUnit.value === 'lb' ? 2.2046226218 : 1) * 100) / 100;
-  const fromDisplay = (value: string | number | null) =>
+  const toDisplay = (kg: number | null | undefined, unit = massUnit.value) =>
+    kg == null ? null : Math.round(kg * (unit === 'lb' ? 2.2046226218 : 1) * 100) / 100;
+  const fromDisplay = (value: string | number | null, unit = massUnit.value) =>
     value === '' || value == null
       ? null
-      : Math.round((Number(value) / (massUnit.value === 'lb' ? 2.2046226218 : 1)) * 1e6) / 1e6;
+      : Math.round((Number(value) / (unit === 'lb' ? 2.2046226218 : 1)) * 1e6) / 1e6;
   const formatLoad = (kg: number | null | undefined) =>
     kg == null ? '—' : `${toDisplay(kg)} ${massUnit.value}`;
   return { preferences, massUnit, toDisplay, fromDisplay, formatLoad };

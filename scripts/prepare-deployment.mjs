@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const destination = path.join(root, 'artifacts/render-deployment');
 const excluded = new Set([
-  '.git', 'node_modules', '.quasar', 'dist', '.tools', 'backups', 'data',
-  '.vscode', '.DS_Store', '.thumbs.db', 'Thumbs.db',
+  '.git', 'node_modules', '.quasar', 'dist', '.tools', 'backups', 'data', '.gradle', '.kotlin', 'build',
+  '.vscode', '.idea', '.DS_Store', '.thumbs.db', 'Thumbs.db', 'capacitor-cordova-android-plugins',
 ]);
 function include(source) {
   const relative = path.relative(root, source).split(path.sep).join('/');
@@ -16,7 +16,12 @@ function include(source) {
   if (name.startsWith('.env') && name !== '.env.example') return false;
   if (/\.(log|sqlite|sqlite-shm|sqlite-wal|jks|keystore)$/i.test(name)) return false;
   if (name.includes('.temporary.compiled')) return false;
-  return !['frontend/public/pose', 'frontend/public/workout-guide'].some(
+  if (name === 'local.properties') return false;
+  if (['frontend/src-capacitor/android/app/src/main/assets/capacitor.config.json',
+    'frontend/src-capacitor/android/app/src/main/assets/capacitor.plugins.json',
+    'frontend/src-capacitor/android/app/src/main/res/xml/config.xml'].includes(relative)) return false;
+  return !['frontend/public/pose', 'frontend/public/workout-guide', 'frontend/src-capacitor/www',
+    'frontend/src-capacitor/android/app/src/main/assets/public'].some(
     (prefix) => relative === prefix || relative.startsWith(prefix + '/'),
   );
 }
@@ -29,6 +34,8 @@ for (const item of ['.gitignore', 'package.json', 'render.yaml', 'README.md', 's
 }
 await mkdir(path.join(destination, 'docs'), { recursive: true });
 await cp(path.join(root, 'docs/FREE_HOSTING_SETUP.md'), path.join(destination, 'docs/FREE_HOSTING_SETUP.md'));
+await cp(path.join(root, 'docs/ANDROID_SETUP.md'), path.join(destination, 'docs/ANDROID_SETUP.md'));
+await cp(path.join(root, 'docs/ANDROID_PROGRESS.md'), path.join(destination, 'docs/ANDROID_PROGRESS.md'));
 
 // A second pass refuses accidental credentials anywhere in the prepared source.
 const localEnv = await readFile(path.join(root, 'backend-express/.env'), 'utf8').catch(() => '');
@@ -39,7 +46,7 @@ async function inspect(directory) {
     if (excluded.has(entry.name)) continue;
     const filename = path.join(directory, entry.name);
     const relative = path.relative(destination, filename).split(path.sep).join('/');
-    if (relative === 'frontend/public/pose' || relative === 'frontend/public/workout-guide') continue;
+    if (!include(path.join(root, relative))) continue;
     if (entry.isSymbolicLink()) throw new Error('Remove symbolic links from deployment source.');
     if (entry.isDirectory()) await inspect(filename);
     else {

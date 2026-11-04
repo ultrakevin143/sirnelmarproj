@@ -155,23 +155,6 @@ const emit = defineEmits<{
 }
 
 @media (max-width: 700px) {
-  .session-bar:has(.session-finish-btn) {
-    flex-direction: row;
-    align-items: center;
-    gap: 12px;
-  }
-  .session-bar:has(.session-finish-btn) .session-copy strong {
-    font-size: 18px;
-    overflow-wrap: anywhere;
-  }
-  .session-bar:has(.session-finish-btn) .session-finish-btn {
-    width: auto;
-    min-width: 112px;
-    padding: 0 12px;
-  }
-}
-
-@media (max-width: 700px) {
   .session-bar {
     align-items: stretch;
     flex-direction: column;

@@ -9,6 +9,7 @@ defineProps<{
   loading: boolean;
   busy: boolean;
   preview: PlanTemplatePreview | null;
+  errorMessage?: string;
 }>();
 
 const emit = defineEmits<{
@@ -17,6 +18,7 @@ const emit = defineEmits<{
   applyTemplate: [id: number];
   deleteTemplate: [id: number];
   clearPreview: [];
+  retry: [];
 }>();
 
 const newName = ref('');
@@ -25,13 +27,23 @@ function submitSave() {
   const trimmed = newName.value.trim();
   if (!trimmed) return;
   emit('saveTemplate', trimmed);
-  newName.value = '';
 }
 </script>
 
 <template>
   <q-dialog v-model="open">
     <q-card class="editor-dialog template-dialog">
+      <q-banner v-if="errorMessage" role="alert" class="q-ma-md">
+        {{ errorMessage }}
+        <q-btn
+          v-if="!preview"
+          flat
+          no-caps
+          label="Try again"
+          :disable="loading || busy"
+          @click="emit('retry')"
+        />
+      </q-banner>
       <!-- Preview Mode -->
       <template v-if="preview">
         <q-card-section>
@@ -88,13 +100,14 @@ function submitSave() {
               no-caps
               color="primary"
               label="Save current week"
-              :disable="!newName.trim() || busy"
+              :disable="!newName.trim() || busy || loading"
               :loading="busy"
               @click="submitSave"
             />
           </div>
 
-          <div v-if="templates.length" class="template-list">
+          <p v-if="loading" role="status">Loading saved programs…</p>
+          <div v-else-if="templates.length" class="template-list">
             <article v-for="tmpl in templates" :key="tmpl.id" class="template-item">
               <div class="template-info">
                 <h3>{{ tmpl.name }}</h3>
@@ -152,7 +165,7 @@ function submitSave() {
 }
 .template-copy {
   margin: 6px 0 18px;
-  color: #646c60;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 .save-template-form {
@@ -175,20 +188,20 @@ function submitSave() {
   justify-content: space-between;
   align-items: center;
   padding: 10px 14px;
-  border: 1px solid #dfe3db;
+  border: 1px solid var(--border-subtle);
   border-radius: 7px;
-  background: #fbfcf9;
+  background: var(--bg-surface-elevated);
 }
 .template-info h3 {
   margin: 0 0 2px;
   font-size: 15px;
   font-weight: 700;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 .template-info p {
   margin: 0;
   font-size: 12px;
-  color: #778071;
+  color: var(--text-secondary);
 }
 .template-actions {
   display: flex;
@@ -198,9 +211,9 @@ function submitSave() {
 .empty-templates {
   padding: 24px 12px;
   text-align: center;
-  color: #778071;
-  background: #fbfcf9;
-  border: 1px dashed #dfe3db;
+  color: var(--text-secondary);
+  background: var(--bg-surface-elevated);
+  border: 1px dashed var(--border-subtle);
   border-radius: 7px;
 }
 .empty-templates p {
@@ -224,19 +237,43 @@ function submitSave() {
   align-items: center;
   gap: 12px;
   padding: 6px 10px;
-  background: #f5f6f2;
+  background: var(--bg-surface-elevated);
   border-radius: 5px;
   font-size: 12px;
 }
 .template-day-list strong {
   width: 70px;
-  color: #1a1a1a;
+  color: var(--text-primary);
 }
 .template-day-list span {
   flex: 1;
-  color: #4b5247;
+  color: var(--text-secondary);
 }
 .template-day-list small {
-  color: #778071;
+  color: var(--text-secondary);
+}
+
+.template-info {
+  min-width: 0;
+}
+.template-info h3 {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .save-template-form,
+  .template-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .save-input {
+    width: 100%;
+  }
+  .template-actions {
+    justify-content: flex-end;
+    margin-top: 10px;
+  }
+  .template-dialog .q-card__actions {
+    gap: 8px;
+  }
 }
 </style>

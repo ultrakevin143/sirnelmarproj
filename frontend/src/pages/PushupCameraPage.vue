@@ -86,9 +86,18 @@
       </fieldset>
 
       <div class="camera-grid">
-        <section class="preview-panel" aria-label="Camera preview">
-          <div class="preview-stage">
-            <video ref="video" autoplay muted playsinline aria-label="Live camera preview" />
+        <section ref="previewPanel" class="preview-panel" aria-label="Camera preview">
+          <div class="preview-stage" :style="{ '--camera-preview-ratio': previewRatio }">
+            <video
+              ref="video"
+              :class="{ 'preview-video-idle': cameraState !== 'on' }"
+              autoplay
+              muted
+              playsinline
+              aria-label="Live camera preview"
+              @loadedmetadata="updatePreviewRatio"
+              @resize="updatePreviewRatio"
+            />
             <canvas ref="overlay" aria-hidden="true" />
             <div v-if="cameraState !== 'on'" class="preview-placeholder">
               <q-icon name="videocam" size="36px" />
@@ -220,7 +229,7 @@
             <p v-if="trackingStrategy === 'chest'" class="front-caution">
               The ring estimates your upper-body location from shoulders or a shoulder/hip pair.
               Chest mode follows vertical travel or apparent shoulder-size changes toward the
-              camera. It cannot measure floor distance or verify form. Keep the laptop still;
+              camera. It cannot measure floor distance or verify form. Keep your device still;
               leaning, body rotation and other movements can cause false counts. Review the estimate
               before saving.
             </p>
@@ -403,14 +412,22 @@ const positioning = computed(() =>
   trackingStrategy.value === 'chest'
     ? 'Show at least one shoulder, hip and knee. Feet help reject repositioning. Elbows and hands can be outside the frame. Side or front is fine.'
     : viewMode.value === 'side'
-      ? 'Place the laptop to your side. Show a shoulder, hip and knee, plus an elbow and wrist for arm tracking.'
+      ? 'Place your device to your side. Show a shoulder, hip and knee, plus an elbow and wrist for arm tracking.'
       : viewMode.value === 'front'
-        ? 'Face the laptop. Show a shoulder, hip and knee, plus an elbow and wrist for arm tracking.'
+        ? 'Face the camera. Show a shoulder, hip and knee, plus an elbow and wrist for arm tracking.'
         : 'Side or front is fine. Show a shoulder, hip and knee, plus an elbow and wrist for arm tracking.',
 );
 
 const video = ref<HTMLVideoElement | null>(null),
   overlay = ref<HTMLCanvasElement | null>(null);
+const previewPanel = ref<HTMLElement | null>(null);
+const previewRatio = ref('3 / 4');
+function updatePreviewRatio() {
+  const element = video.value;
+  if (element?.videoWidth && element.videoHeight) {
+    previewRatio.value = `${element.videoWidth} / ${element.videoHeight}`;
+  }
+}
 const cameraState = ref<CameraState>('off'),
   loadingModel = ref(false);
 const message = ref(
@@ -572,6 +589,9 @@ async function startCamera() {
   await camera.start();
   if (cameraState.value === 'on') {
     counting.value = true;
+    if (window.innerWidth <= 800) {
+      previewPanel.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    }
     message.value =
       'Camera is on. Setup and counting are automatic: get into your up position, then lower and return up.';
   }
@@ -845,6 +865,9 @@ p {
   overflow: hidden;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
+.preview-panel {
+  scroll-margin-top: calc(78px + var(--q-safe-area-inset-top, env(safe-area-inset-top, 0px)));
+}
 video,
 canvas {
   display: block;
@@ -854,7 +877,11 @@ canvas {
   inset: 0;
   object-fit: contain;
 }
+.preview-video-idle {
+  visibility: hidden;
+}
 .preview-placeholder {
+  background: #10151e;
   position: absolute;
   inset: 0;
   display: flex;
@@ -1079,6 +1106,19 @@ input {
   }
 }
 @media (max-width: 800px) {
+  .preview-stage {
+    aspect-ratio: var(--camera-preview-ratio, 3 / 4);
+    max-height: calc(100svh - 250px);
+  }
+  .preview-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .preview-controls > button {
+    flex: 1 1 140px;
+    min-height: 44px;
+  }
   .camera-grid {
     grid-template-columns: 1fr;
   }
@@ -1099,6 +1139,12 @@ input {
   .review-panel {
     grid-template-columns: 1fr;
     gap: 18px;
+  }
+}
+@media (max-width: 800px) and (orientation: landscape) {
+  .preview-stage {
+    aspect-ratio: 16 / 9;
+    max-height: 70svh;
   }
 }
 @media (max-width: 480px) {

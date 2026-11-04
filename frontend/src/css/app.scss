@@ -33,6 +33,14 @@
   --radius-md: 10px;
   --radius-lg: 14px;
   --radius-xl: 18px;
+  --liftup-bottom-clearance: 0px;
+}
+
+body.capacitor .app-header,
+body.capacitor .floating-nav-pill,
+body.capacitor .mobile-bottom-dock {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 :root[data-theme='light'],
@@ -62,6 +70,11 @@ body.body--light {
   --card-shadow: 0 4px 16px -2px rgba(15, 23, 42, 0.08);
   --header-bg: rgba(255, 255, 255, 0.92);
   --bottom-dock-bg: rgba(255, 255, 255, 0.96);
+}
+
+body.capacitor {
+  --header-bg: var(--bg-page);
+  --bottom-dock-bg: var(--bg-surface);
 }
 
 /* ==========================================================================
@@ -298,7 +311,21 @@ body::before {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid var(--border-subtle);
-  padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+  padding: 6px 12px calc(6px + var(--q-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+}
+
+@media (max-width: 1023px) {
+  body {
+    --liftup-bottom-clearance: calc(
+      60px + var(--q-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))
+    );
+  }
+  body.liftup-keyboard-open {
+    --liftup-bottom-clearance: 0px;
+  }
+  body.liftup-keyboard-open .mobile-bottom-dock {
+    display: none;
+  }
 }
 
 @media (max-width: 768px) {
@@ -312,7 +339,7 @@ body::before {
   }
   /* Pad page bottom so content is never hidden behind mobile dock */
   .q-page {
-    padding-bottom: 84px !important;
+    padding-bottom: calc(24px + var(--liftup-bottom-clearance)) !important;
   }
 }
 
@@ -440,6 +467,39 @@ body::before {
 
 .q-field__label {
   color: var(--text-secondary);
+}
+
+.q-menu,
+.q-select__dialog {
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
+
+.q-select__dialog .q-field__control {
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+}
+
+.q-select__dialog .q-field__label,
+.q-select__dialog .q-field__append {
+  color: var(--text-secondary);
+}
+
+.q-select__dialog-close {
+  color: var(--accent-primary);
+  min-width: 44px;
+}
+
+.q-menu .q-item,
+.q-select__dialog .q-item {
+  min-height: 48px;
+}
+
+.q-menu .q-item--active,
+.q-select__dialog .q-item--active {
+  color: var(--accent-primary);
+  background: var(--accent-surface);
 }
 
 /* ==========================================================================

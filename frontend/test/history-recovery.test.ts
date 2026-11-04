@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, shallowMount } from '@vue/test-utils';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import axios from 'axios';
+vi.mock('../src/composables/useAuth', async () => {
+  const { ref } = await import('vue');
+  return { useAuth: () => ({ currentUser: ref({ id: 'history-test' }) }) };
+});
 import HistoryPage from '../src/pages/SecondPage.vue';
 import { layoutHistory } from './fixtures/workoutLayout';
 

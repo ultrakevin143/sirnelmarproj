@@ -339,7 +339,7 @@ function navigateTo(tab: 'workout' | 'plan' | 'library' | 'history') {
     justify-content: space-around;
   }
   .shell-content :deep(.q-page) {
-    padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px)) !important;
+    padding-bottom: calc(24px + var(--liftup-bottom-clearance)) !important;
   }
   .main-layout :deep(.q-toolbar) {
     padding: 0 16px;

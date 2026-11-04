@@ -163,6 +163,15 @@ describe('automatic camera page without hardware access', () => {
       expect(wrapper.get('.count-display strong').text()).toBe('1');
       expect(wrapper.get('.detected-view').text()).toContain('Skeleton up/down');
       expect(wrapper.get('.angle-readout').text()).toContain('body context checked');
+      const preview = wrapper.get('video');
+      Object.defineProperty(preview.element, 'videoWidth', { configurable: true, value: 720 });
+      Object.defineProperty(preview.element, 'videoHeight', { configurable: true, value: 960 });
+      await preview.trigger('loadedmetadata');
+      expect(wrapper.get('.preview-stage').attributes('style')).toContain('720 / 960');
+      Object.defineProperty(preview.element, 'videoWidth', { configurable: true, value: 1280 });
+      Object.defineProperty(preview.element, 'videoHeight', { configurable: true, value: 720 });
+      await preview.trigger('resize');
+      expect(wrapper.get('.preview-stage').attributes('style')).toContain('1280 / 720');
     } finally {
       wrapper.unmount();
     }

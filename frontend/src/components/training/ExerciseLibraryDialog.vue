@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { nextTick, ref } from 'vue';
 import type { ExerciseType } from '@bryllim/workout-guide';
 import type { CatalogExercise, PlanDay } from '@/types/workout';
 import { useTrainingPreferences } from '@/composables/useTrainingPreferences';
+import LibraryPagination from './LibraryPagination.vue';
 const { massUnit, toDisplay, fromDisplay } = useTrainingPreferences();
 
 const open = defineModel<boolean>({ required: true });
@@ -9,6 +11,12 @@ const search = defineModel<string>('search', { required: true });
 const selectedMuscle = defineModel<string>('selectedMuscle', { required: true });
 const selectedEquipment = defineModel<string | null>('selectedEquipment', { required: true });
 const exercisePage = defineModel<number>('exercisePage', { required: true });
+const content = ref<HTMLElement | null>(null);
+async function changePage(page: number) {
+  exercisePage.value = page;
+  await nextTick();
+  content.value?.scrollTo?.({ top: 0, behavior: 'smooth' });
+}
 const customMode = defineModel<boolean>('customMode', { required: true });
 const customName = defineModel<string>('customName', { required: true });
 const customTarget = defineModel<string>('customTarget', { required: true });
@@ -61,13 +69,19 @@ const emit = defineEmits<{
     <q-card class="plan-library-dialog">
       <q-toolbar class="plan-library-toolbar">
         <div>
-          <p class="eyebrow">ADD TO {{ selectedDay?.dayName.toUpperCase() }}</p>
+          <p class="eyebrow">
+            {{
+              customMode
+                ? 'YOUR MOVEMENTS'
+                : `ADD TO ${selectedDay?.dayName.toUpperCase() ?? 'YOUR PLAN'}`
+            }}
+          </p>
           <h2>Choose a movement</h2>
         </div>
         <q-space />
         <q-btn round flat icon="close" aria-label="Close exercise library" v-close-popup />
       </q-toolbar>
-      <div class="plan-library-content">
+      <div ref="content" class="plan-library-content">
         <div class="library-heading plan-library-heading">
           <div>
             <h3>Exercise library</h3>
@@ -159,7 +173,7 @@ const emit = defineEmits<{
             type="number"
             min="0"
             :max="massUnit === 'lb' ? 2204.62 : 1000"
-            step="0.5"
+            step="any"
             outlined
             dense
           />
@@ -305,22 +319,14 @@ const emit = defineEmits<{
               </div>
             </article>
           </div>
-          <div v-if="exercisePageCount > 1" class="exercise-pagination">
-            <span
-              >Showing {{ exerciseRangeStart }}-{{ exerciseRangeEnd }} of
-              {{ filteredExercises.length }}</span
-            >
-            <q-pagination
-              v-model="exercisePage"
-              :max="exercisePageCount"
-              :max-pages="5"
-              boundary-numbers
-              direction-links
-              color="primary"
-              size="sm"
-              aria-label="Exercise library pages"
-            />
-          </div>
+          <LibraryPagination
+            :model-value="exercisePage"
+            @update:model-value="changePage"
+            :page-count="exercisePageCount"
+            :range-start="exerciseRangeStart"
+            :range-end="exerciseRangeEnd"
+            :total="filteredExercises.length"
+          />
         </div>
         <div v-else class="state-panel empty-panel">
           <q-icon name="search_off" size="30px" /><strong>No movements match that search</strong>
@@ -344,7 +350,7 @@ const emit = defineEmits<{
 <style scoped>
 .eyebrow {
   margin: 0 0 10px;
-  color: #778071;
+  color: var(--text-secondary);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.18em;
@@ -353,14 +359,21 @@ const emit = defineEmits<{
 .plan-library-dialog {
   display: flex;
   flex-direction: column;
-  background: #f4f5f2;
+  background: var(--bg-page);
 }
 .plan-library-toolbar {
   flex: 0 0 auto;
   min-height: 88px;
   padding: 12px max(24px, calc((100vw - 1320px) / 2));
-  border-bottom: 1px solid #dfe3db;
-  background: #f4f5f2;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-page);
+}
+
+:global(body.capacitor) .plan-library-toolbar {
+  padding-top: calc(10px + var(--q-safe-area-inset-top, env(safe-area-inset-top, 0px)));
+}
+:global(body.capacitor) .plan-library-content {
+  padding-bottom: calc(34px + var(--q-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
 }
 .plan-library-toolbar .eyebrow {
   margin: 0 0 4px;
@@ -394,7 +407,7 @@ const emit = defineEmits<{
 }
 .plan-library-heading p {
   margin-top: 4px;
-  color: #798073;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 .search-input {
@@ -408,10 +421,10 @@ const emit = defineEmits<{
 }
 .filter-chip {
   padding: 8px 13px;
-  border: 1px solid #dde1d9;
+  border: 1px solid var(--border-subtle);
   border-radius: 5px;
   background: transparent;
-  color: #586052;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 11px;
   font-weight: 600;
@@ -422,15 +435,15 @@ const emit = defineEmits<{
     transform 150ms ease;
 }
 .filter-chip:hover {
-  border-color: #b4bcab;
+  border-color: var(--border-strong);
 }
 .filter-chip:active {
   transform: translateY(1px);
 }
 .filter-chip.selected {
-  border-color: #262d22;
-  background: #262d22;
-  color: white;
+  border-color: var(--accent-primary);
+  background: var(--accent-primary);
+  color: var(--accent-contrast);
 }
 .equipment-filter {
   min-width: 140px;
@@ -453,9 +466,9 @@ const emit = defineEmits<{
   gap: 12px;
   margin: 4px 0 18px;
   padding: 14px;
-  border: 1px solid #dce3d3;
+  border: 1px solid var(--border-subtle);
   border-radius: 7px;
-  background: #edf1e6;
+  background: var(--bg-surface-elevated);
 }
 .selected-catalog-entry > img {
   width: 56px;
@@ -472,7 +485,7 @@ const emit = defineEmits<{
   font-size: 12px;
 }
 .selected-catalog-copy span {
-  color: #727b69;
+  color: var(--text-secondary);
   font-size: 10px;
 }
 .custom-entry {
@@ -491,8 +504,8 @@ const emit = defineEmits<{
   flex: 0 0 auto;
   place-items: center;
   border-radius: 5px;
-  background: #e7eddd;
-  color: #536342;
+  background: var(--accent-surface);
+  color: var(--accent-primary);
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 22px;
   font-weight: 700;
@@ -502,7 +515,7 @@ const emit = defineEmits<{
 }
 .custom-entry-heading p {
   margin: 4px 0 0;
-  color: #747c70;
+  color: var(--text-secondary);
   font-size: 11px;
 }
 .custom-entry-fields {
@@ -514,7 +527,7 @@ const emit = defineEmits<{
 .custom-image-field {
   display: grid;
   gap: 6px;
-  color: #727b69;
+  color: var(--text-secondary);
   font-size: 11px;
 }
 .custom-image-preview {
@@ -548,8 +561,8 @@ const emit = defineEmits<{
   gap: 16px;
   margin: 20px 0 8px;
   padding-top: 14px;
-  border-top: 1px solid #dfe3db;
-  color: #727b69;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
   font-size: 12px;
 }
 .exercise-pagination .q-pagination {
@@ -657,13 +670,13 @@ const emit = defineEmits<{
 }
 .asset-credit {
   margin: 22px 0 0;
-  color: #848b7f;
+  color: var(--text-secondary);
   font-size: 10px;
   line-height: 1.6;
 }
 .asset-credit a {
-  color: #4f5d3e;
-  text-decoration-color: #a8b69a;
+  color: var(--accent-primary);
+  text-decoration-color: var(--accent-border);
   text-underline-offset: 2px;
 }
 .state-panel {
@@ -671,20 +684,20 @@ const emit = defineEmits<{
   align-items: center;
   gap: 16px;
   padding: 28px;
-  border: 1px solid #e0e3dd;
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: white;
-  color: #576052;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
 }
 .state-panel strong {
-  color: #292f26;
+  color: var(--text-primary);
 }
 .state-panel p {
   margin: 5px 0 0;
   font-size: 12px;
 }
 .error-panel > .q-icon {
-  color: #a2523d;
+  color: var(--danger-primary);
 }
 .empty-panel {
   flex-direction: column;
@@ -726,6 +739,8 @@ const emit = defineEmits<{
   }
   .plan-library-heading {
     align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
   }
   .plan-library-heading .search-input {
     width: 100%;
@@ -754,7 +769,7 @@ const emit = defineEmits<{
     justify-self: stretch;
   }
   .custom-entry-fields {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
   .custom-entry-fields .q-btn {
     grid-column: 1 / -1;

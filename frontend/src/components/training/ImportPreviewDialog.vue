@@ -47,7 +47,7 @@ const emit = defineEmits<{
 <style scoped>
 .eyebrow {
   margin: 0 0 10px;
-  color: #778071;
+  color: var(--text-secondary);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.18em;
@@ -67,7 +67,7 @@ const emit = defineEmits<{
   overflow-y: auto;
 }
 .import-preview-dialog > .q-card__section > p:not(.eyebrow) {
-  color: #737b6f;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 .import-warning {
@@ -79,7 +79,7 @@ const emit = defineEmits<{
 .import-day-list {
   display: grid;
   gap: 1px;
-  background: #e6e9e2;
+  background: var(--border-subtle);
 }
 .import-day-list > div {
   display: grid;
@@ -87,14 +87,15 @@ const emit = defineEmits<{
   align-items: center;
   gap: 8px;
   padding: 9px 10px;
-  background: #fff;
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
   font-size: 11px;
 }
 .import-day-list > div > span {
-  color: #596153;
+  color: var(--text-secondary);
 }
 .import-day-list small {
-  color: #848b7f;
+  color: var(--text-secondary);
   text-align: right;
 }
 

@@ -662,7 +662,7 @@ const selectedDemoRpe = ref(8.5);
 /* Floating Glass Pill Navigation */
 .floating-nav-container {
   position: fixed;
-  top: 1.25rem;
+  top: calc(1.25rem + var(--q-safe-area-inset-top, env(safe-area-inset-top, 0px)));
   left: 0;
   right: 0;
   display: flex;
@@ -877,7 +877,7 @@ const selectedDemoRpe = ref(8.5);
   z-index: 2;
   max-width: 1240px;
   margin: 0 auto;
-  padding: 8rem 1.5rem 4rem;
+  padding: calc(8rem + var(--q-safe-area-inset-top, env(safe-area-inset-top, 0px))) 1.5rem 4rem;
 }
 
 /* ==========================================================================
@@ -1903,7 +1903,7 @@ const selectedDemoRpe = ref(8.5);
 @media (max-width: 540px) {
   .floating-nav-container {
     padding: 0 12px;
-    top: 12px;
+    top: calc(12px + var(--q-safe-area-inset-top, env(safe-area-inset-top, 0px)));
   }
   .floating-nav-pill {
     gap: 8px;
@@ -1937,7 +1937,7 @@ const selectedDemoRpe = ref(8.5);
 
 @media (max-width: 768px) {
   .landing-body {
-    padding: 6.5rem 1rem 3rem;
+    padding: calc(6.5rem + var(--q-safe-area-inset-top, env(safe-area-inset-top, 0px))) 1rem 3rem;
   }
   .stage-image-container {
     height: 260px;

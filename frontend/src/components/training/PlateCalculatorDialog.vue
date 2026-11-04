@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { calculatePlates } from '@/utils/plateCalculator';
+import { computed, reactive } from 'vue';
+import { calculatePlateLoad, PLATE_WEIGHTS, POUND_PLATE_WEIGHTS } from '@/utils/plateCalculator';
+import { useTrainingPreferences } from '@/composables/useTrainingPreferences';
+import WeightUnitToggle from './WeightUnitToggle.vue';
 const model = defineModel<boolean>({ required: true });
-const totalKg = ref<number | null>(60);
-const result = computed(() => calculatePlates(totalKg.value ?? NaN));
+const { massUnit } = useTrainingPreferences();
+const totals = reactive<{ kg: number | null; lb: number | null }>({ kg: 60, lb: 135 });
+const barWeight = computed(() => (massUnit.value === 'lb' ? 45 : 20));
+const sizes = computed(() => (massUnit.value === 'lb' ? POUND_PLATE_WEIGHTS : PLATE_WEIGHTS));
+const result = computed(() => calculatePlateLoad(totals[massUnit.value] ?? NaN, massUnit.value));
 </script>
 
 <template>
@@ -17,27 +22,28 @@ const result = computed(() => calculatePlates(totalKg.value ?? NaN));
         <q-btn v-close-popup flat round icon="close" aria-label="Close plate calculator" />
       </q-card-section>
       <q-card-section>
+        <WeightUnitToggle class="q-mb-md" />
         <q-input
-          v-model.number="totalKg"
+          v-model.number="totals[massUnit]"
           type="number"
           outlined
           label="Total load, including bar"
-          suffix="kg"
-          min="20"
-          max="1000"
-          step="2.5"
+          :suffix="massUnit"
+          :min="barWeight"
+          :max="massUnit === 'lb' ? 2200 : 1000"
+          :step="massUnit === 'lb' ? 5 : 2.5"
           autofocus
         />
         <p class="plate-note">
-          20 kg Olympic bar · matching plates on both sides · collars excluded.
+          {{ barWeight }} {{ massUnit }} bar · matching plates on both sides · collars excluded.
         </p>
         <p v-if="result.error" role="alert">{{ result.error }}</p>
         <section v-else aria-live="polite">
           <h3>On each side</h3>
           <p v-if="!result.plates.length">Empty bar. No plates needed.</p>
           <ol v-else class="plate-list">
-            <li v-for="plate in result.plates" :key="plate.weightKg">
-              <strong>{{ plate.count }} × {{ plate.weightKg }} kg</strong>
+            <li v-for="plate in result.plates" :key="plate.weight">
+              <strong>{{ plate.count }} × {{ plate.weight }} {{ massUnit }}</strong>
               <span>{{ plate.count === 1 ? 'plate' : 'plates' }} per side</span>
             </li>
           </ol>
@@ -45,7 +51,7 @@ const result = computed(() => calculatePlates(totalKg.value ?? NaN));
             Load largest to smallest from the bar outward. Assumes enough pairs of each plate size.
           </p>
         </section>
-        <p class="plate-note">Available sizes: 20, 10, 5, 2.5 and 1.25 kg.</p>
+        <p class="plate-note">Available sizes: {{ sizes.join(', ') }} {{ massUnit }}.</p>
       </q-card-section>
     </q-card>
   </q-dialog>

@@ -21,7 +21,12 @@ const emit = defineEmits<{
   <q-dialog v-model="open">
     <q-card v-if="selectedExercise" class="exercise-dialog">
       <q-card-section class="dialog-art">
-        <img :src="selectedExerciseImage" :alt="`${selectedExercise.name} movement illustration`" />
+        <img
+          v-if="selectedExerciseImage"
+          :src="selectedExerciseImage"
+          :alt="`${selectedExercise.name} movement illustration`"
+        />
+        <span v-else class="detail-copy">Custom movement</span>
         <q-btn
           round
           flat
@@ -55,6 +60,7 @@ const emit = defineEmits<{
               : selectedExercise.primaryMuscle
           }}.
         </p>
+        <p v-if="selectedExercise.cues" class="detail-copy">{{ selectedExercise.cues }}</p>
         <q-btn
           unelevated
           no-caps

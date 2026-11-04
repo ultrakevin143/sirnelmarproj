@@ -1,4 +1,5 @@
 import type { PosePoint } from './pushupCounter';
+import { Capacitor } from '@capacitor/core';
 export type CameraState = 'off' | 'loading' | 'requesting' | 'on';
 type Dependencies = {
   worker: () => Worker;
@@ -128,12 +129,16 @@ export class PoseCamera {
         typeof error === 'object' && error !== null && 'name' in error ? String(error.name) : '';
       this.fail(
         name === 'NotAllowedError'
-          ? 'Camera permission was denied. Allow it in the browser, then try again.'
+          ? Capacitor.isNativePlatform()
+            ? 'Camera permission was denied. Open Android Settings > Apps > LiftUp > Permissions, allow Camera, then return and try again.'
+            : 'Camera permission was denied. Allow it in the browser, then try again.'
           : name === 'NotFoundError'
             ? 'No camera was found. Connect or enable your webcam.'
             : name === 'NotReadableError'
               ? 'Camera is busy. Close other apps using it, then try again.'
-              : 'Camera or model could not start. Use localhost in current Chrome or Edge.',
+              : Capacitor.isNativePlatform()
+                ? 'Camera or tracking could not start. Close other camera apps, reopen LiftUp and try again.'
+                : 'Camera or model could not start. Use localhost in current Chrome or Edge.',
       );
     } finally {
       if (generation === this.generation) this.requesting = false;

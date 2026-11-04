@@ -28,7 +28,7 @@ This is a continuation of the existing LiftUp school project. The instructor acc
 - The user selected free hosting first on November 3, 2026.
 - The user confirmed retaining LiftUp's existing design and features for the Android adaptation.
 - Password recovery and email verification were previously excluded by the user.
-- Hosting accounts, final public URL, Android version, and submission deadline remain unconfirmed.
+- The hosted website and API are at https://liftup-ldlv.onrender.com/. The test phone is a Samsung SM-A736B running Android 16. The submission deadline remains unconfirmed.
 
 ## Brand Commitments
 
@@ -38,7 +38,7 @@ Keep LiftUp's existing name, logo, typography, light and dark themes, and visual
 
 - Existing routes and implementations are in src/pages, src/layouts, and src/composables.
 - Existing phone screenshot references are in ../artifacts. They are historical layout references, not proof of a completed Android application.
-- The Android project has not been initialized at the time of this planning pass.
+- The Android project is initialized in src-capacitor/android. Native build and real-device checks are in progress; this is not yet release evidence.
 
 ## Product Principles
 

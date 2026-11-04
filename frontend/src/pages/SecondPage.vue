@@ -1,6 +1,7 @@
 <template>
   <q-page class="history-page">
     <div class="history-shell">
+      <WeightUnitToggle class="q-mb-lg" />
       <header class="history-heading">
         <div>
           <p class="eyebrow">YOUR TRAINING</p>
@@ -13,7 +14,8 @@
             no-caps
             icon="download"
             label="Export CSV"
-            href="/api/v1/workouts/export.csv"
+            @click="exportHistory"
+            :loading="exporting"
             :disable="loading && !workouts.length"
           />
           <q-btn
@@ -200,7 +202,7 @@
                       outlined
                       type="number"
                       min="0"
-                      step="0.5"
+                      step="any"
                       :aria-label="`${exercise.exerciseName} set ${set.setNumber} load ${massUnit}`"
                     />
                     <span>{{ massUnit }} ×</span>
@@ -446,9 +448,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import axios from 'axios';
+import { exportFile } from '@/utils/exportFile';
 import { useRoute, useRouter } from 'vue-router';
 import { useTrainingPreferences } from '@/composables/useTrainingPreferences';
 import TrainingConsistency from '@/components/training/TrainingConsistency.vue';
+import WeightUnitToggle from '@/components/training/WeightUnitToggle.vue';
 import { recordLabels, recordDescriptions } from '@/utils/personalRecords';
 import type { PersonalRecord } from '@/types/workout';
 
@@ -541,6 +545,20 @@ const effortOptions = Array.from({ length: 10 }, (_, index) => ({
 const loading = ref(true);
 const historyView = ref<'log' | 'insights'>('log');
 const errorMessage = ref('');
+const exporting = ref(false);
+async function exportHistory() {
+  if (exporting.value) return;
+  exporting.value = true;
+  try {
+    await exportFile('/api/v1/workouts/export.csv', 'liftup-workout-history.csv', 'text/csv');
+  } catch (error) {
+    errorMessage.value = axios.isAxiosError(error)
+      ? (error.response?.data?.error ?? 'Could not export your history. Try again.')
+      : 'Could not export your history. Try again.';
+  } finally {
+    exporting.value = false;
+  }
+}
 const analyticsError = ref('');
 const progressError = ref('');
 const progressLoading = ref(false);

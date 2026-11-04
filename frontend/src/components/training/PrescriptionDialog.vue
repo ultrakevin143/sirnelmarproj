@@ -34,7 +34,7 @@ const emit = defineEmits<{
             type="number"
             min="0"
             :max="massUnit === 'lb' ? 2204.62 : 1000"
-            step="0.5"
+            step="any"
             outlined
           />
         </div>
