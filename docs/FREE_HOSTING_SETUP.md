@@ -76,7 +76,7 @@ The application allows up to six health requests, each with a ten-second timeout
 
 ## Current status
 
-Deployment source and local checks are being prepared. A public Render service is not yet confirmed. Update this section with the actual service URL and hosted acceptance results after deployment.
+Deployment source is pushed to the target repository. The production build, clean-install build, TypeScript check, 106 frontend tests, and 23 backend tests passed; three opt-in PostgreSQL tests were skipped. Backend dependency updates passed a repeat test run and reported zero audit findings. Frontend dependency audit findings remain recorded for release review. A public Render service is not yet confirmed. Update this section with the actual service URL and hosted acceptance results after deployment.
 
 ## Official references
 
