@@ -1,0 +1,33 @@
+# Secrets and local data
+**/.env
+**/.env.*
+!**/.env.example
+**/backups/
+**/data/
+**/.tools/
+**/*.sqlite*
+**/*.log
+**/*.jks
+**/*.keystore
+**/local.properties
+
+# Dependencies, generated assets and builds
+**/node_modules/
+**/.quasar/
+**/dist/
+frontend/public/pose/
+frontend/public/workout-guide/
+frontend/quasar.config.*.temporary.compiled*
+frontend/src-capacitor/www/
+**/.gradle/
+**/build/
+
+# Local evidence and editor files
+artifacts/
+.impeccable/
+.agents/
+**/.DS_Store
+**/.thumbs.db
+**/Thumbs.db
+**/.vscode/
+*.docx

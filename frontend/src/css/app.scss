@@ -1,0 +1,459 @@
+/* ==========================================================================
+   LIFTUP / OS - Modern Athletic Design Tokens
+   Anti-slop, clean typography, high tactile utility, stealth night mode
+   ========================================================================== */
+
+:root {
+  /* LIFTUP ATHLETIC NIGHT MODE TOKENS (Pure Stealth Black, High Contrast, Anti-Slop) */
+  --bg-page: #0b0e14;
+  --bg-surface: #131722;
+  --bg-surface-elevated: #1a202c;
+  --bg-surface-hover: #222938;
+  --border-subtle: #232836;
+  --border-strong: #3b4458;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #738294;
+  --accent-primary: #a3e635;
+  --landing-gradient-middle: #4ade80;
+  --landing-gradient-end: #38bdf8;
+  --accent-contrast: #0b0e14;
+  --accent-surface: rgba(163, 230, 53, 0.14);
+  --accent-border: rgba(163, 230, 53, 0.35);
+  --art-stage-bg: #141926;
+  --art-stage-border: #242c3d;
+  --danger-primary: #f87171;
+  --danger-surface: rgba(248, 113, 113, 0.15);
+  --badge-bg: #1e2433;
+  --badge-text: #cbd5e1;
+  --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.45);
+  --header-bg: rgba(11, 14, 20, 0.9);
+  --bottom-dock-bg: rgba(19, 23, 34, 0.96);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+}
+
+:root[data-theme='light'],
+body.body--light {
+  /* LIFTUP ATHLETIC LIGHT MODE TOKENS (Crisp Studio Clean, High Contrast, Athletic Lime) */
+  --bg-page: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #f1f5f9;
+  --bg-surface-hover: #e2e8f0;
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --accent-primary: #4d7c0f;
+  --landing-gradient-middle: #15803d;
+  --landing-gradient-end: #0369a1;
+  --accent-contrast: #ffffff;
+  --accent-surface: rgba(77, 124, 15, 0.12);
+  --accent-border: rgba(77, 124, 15, 0.32);
+  --art-stage-bg: #1e293b;
+  --art-stage-border: #334155;
+  --danger-primary: #dc2626;
+  --danger-surface: rgba(220, 38, 38, 0.12);
+  --badge-bg: #e2e8f0;
+  --badge-text: #334155;
+  --card-shadow: 0 4px 16px -2px rgba(15, 23, 42, 0.08);
+  --header-bg: rgba(255, 255, 255, 0.92);
+  --bottom-dock-bg: rgba(255, 255, 255, 0.96);
+}
+
+/* ==========================================================================
+   Base Elements
+   ========================================================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  font-family:
+    'DM Sans',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 26px 26px;
+  z-index: 0;
+}
+
+:root[data-theme='light'] body::before {
+  background-image: radial-gradient(rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+}
+
+.q-page-container {
+  position: relative;
+  z-index: 1;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.lineup-card,
+.planned-item {
+  transition:
+    border-color 0.25s cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 0.25s cubic-bezier(0.32, 0.72, 0, 1),
+    transform 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.lineup-card:hover,
+.planned-item:hover {
+  border-color: var(--accent-border) !important;
+  box-shadow: 0 4px 20px -2px var(--accent-surface) !important;
+  transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   App Shell & Header
+   ========================================================================== */
+
+.app-header {
+  /* QPageContainer already reserves the header height; keep it out of document flow. */
+  position: fixed;
+  top: 0;
+  z-index: 50;
+  background: var(--header-bg) !important;
+  color: var(--text-primary) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border-subtle);
+  box-shadow: none;
+}
+
+.app-header .q-toolbar {
+  max-width: 1240px;
+  min-height: 64px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-brand-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.brand-mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  background: var(--accent-primary);
+  color: var(--accent-contrast);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  border-radius: var(--radius-sm);
+  transform: skew(-6deg);
+}
+
+.brand-title {
+  margin: 0;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+}
+
+.brand-title span {
+  color: var(--text-muted);
+  margin: 0 4px;
+}
+
+/* Segmented Navigation in Header (Desktop) */
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.header-nav .nav-segment-btn {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+}
+
+.header-nav .nav-segment-btn:hover {
+  color: var(--text-primary);
+}
+
+.header-nav .nav-segment-btn.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Live Workout Chip in Header */
+.live-indicator-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--accent-surface);
+  border: 1px solid var(--accent-border);
+  color: var(--accent-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-radius: 9999px;
+  text-transform: uppercase;
+}
+
+.pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--accent-primary);
+  animation: pulse 1.8s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+}
+
+/* Theme Toggle Button */
+.theme-toggle-btn {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-elevated);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.theme-toggle-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+/* ==========================================================================
+   Mobile Bottom Navigation Dock
+   ========================================================================== */
+
+.mobile-bottom-dock {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--bottom-dock-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border-subtle);
+  padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 768px) {
+  .header-nav {
+    display: none;
+  }
+  .mobile-bottom-dock {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+  }
+  /* Pad page bottom so content is never hidden behind mobile dock */
+  .q-page {
+    padding-bottom: 84px !important;
+  }
+}
+
+.dock-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 48px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-decoration: none;
+  font-size: 11px;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+
+.dock-item .q-icon {
+  font-size: 20px;
+}
+
+.dock-item:hover,
+.dock-item.active {
+  color: var(--accent-primary);
+}
+
+.dock-item.active .q-icon {
+  transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   Quasar Overrides & Components
+   ========================================================================== */
+
+.q-btn {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border-radius: var(--radius-md);
+  text-transform: none;
+  transition:
+    transform 0.1s ease,
+    filter 0.15s ease;
+}
+
+.q-btn:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+.q-btn.bg-primary {
+  color: var(--accent-contrast) !important;
+  background: var(--accent-primary) !important;
+  border: 1px solid var(--accent-primary);
+}
+
+.q-btn.bg-primary:hover {
+  filter: brightness(1.05);
+}
+
+.q-card {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--card-shadow);
+}
+
+.q-dialog .q-card {
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+/* Universal High-Contrast Exercise Guide Blueprint Stage
+   Guarantees anatomical white vector illustrations are 100% visible in BOTH light and dark themes */
+.exercise-thumbnail,
+.lineup-img,
+.catalog-thumb,
+.exercise-art,
+.dialog-art {
+  background-color: var(--art-stage-bg, #141926) !important;
+  border: 1px solid var(--art-stage-border, #283348) !important;
+  border-radius: var(--radius-sm, 8px) !important;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08);
+}
+
+.exercise-thumbnail,
+.lineup-img,
+.catalog-thumb {
+  padding: 4px;
+  object-fit: contain !important;
+}
+
+.dialog-art > img,
+.exercise-art img {
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.5));
+}
+
+.q-field--outlined .q-field__control {
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.q-field--outlined .q-field__control:before {
+  border-color: var(--border-subtle);
+}
+
+.q-field--outlined:hover .q-field__control:before {
+  border-color: var(--border-strong);
+}
+
+.q-field--outlined.q-field--focused .q-field__control:after {
+  border-color: var(--accent-primary);
+}
+
+.q-field__native,
+.q-field__input {
+  color: var(--text-primary) !important;
+}
+
+.q-field__label {
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   Utility Classes
+   ========================================================================== */
+
+.page-container-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+@media (max-width: 600px) {
+  .page-container-inner {
+    padding: 16px 14px 60px;
+  }
+}
