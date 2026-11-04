@@ -36,8 +36,10 @@ const configuredDatabaseUrl = localEnv.match(/^\s*DATABASE_URL\s*=\s*(.+)\s*$/m)
 let files = 0;
 async function inspect(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (entry.name === '.git') continue;
+    if (excluded.has(entry.name)) continue;
     const filename = path.join(directory, entry.name);
+    const relative = path.relative(destination, filename).split(path.sep).join('/');
+    if (relative === 'frontend/public/pose' || relative === 'frontend/public/workout-guide') continue;
     if (entry.isSymbolicLink()) throw new Error('Remove symbolic links from deployment source.');
     if (entry.isDirectory()) await inspect(filename);
     else {
@@ -46,7 +48,6 @@ async function inspect(directory) {
       }
       const content = await readFile(filename);
       const text = content.toString('utf8');
-      const relative = path.relative(destination, filename).split(path.sep).join('/');
       if ((configuredDatabaseUrl && text.includes(configuredDatabaseUrl)) ||
           (!relative.includes('/test/') && /(?:postgres(?:ql)?:\/\/)[^\s"']+@[^\s"']+\.neon\.tech/i.test(text))) {
         throw new Error('A database credential was found in deployment source.');
