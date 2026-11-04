@@ -4,6 +4,10 @@ Updated November 4, 2026.
 
 Target repository: https://github.com/ultrakevin143/sirnelmarproj
 
+Live website: https://liftup-ldlv.onrender.com/
+
+Render service: https://dashboard.render.com/web/srv-dbla5rbncjis73d8g8sg
+
 ## Source layout
 
 The repository needs package.json, render.yaml, scripts, frontend, and backend-express at its root. A frontend-only repository cannot run this deployment.
@@ -59,7 +63,7 @@ npm start
 
 Keep NODE_ENV unset for local HTTP so the browser can use the development cookie. Render uses NODE_ENV=production with HTTPS and Secure cookies. Remove temporary variables after the local session.
 
-For a clean dependency installation and build, run npm run build without --skip-install. This uses npm ci for the two child packages. Run tests separately in a development installation; the hosted backend installation omits its development-only test dependencies.
+For a clean dependency installation and build, run npm run build without --skip-install. This uses npm ci for the two child packages. The frontend lockfile includes optional peer entries needed by Render's npm 10; verify clean installation with npm 10 when updating that lockfile. Run tests separately in a development installation; the hosted backend installation omits its development-only test dependencies.
 
 ## Deployment acceptance checks
 
@@ -76,7 +80,13 @@ The application allows up to six health requests, each with a ten-second timeout
 
 ## Current status
 
-Deployment source is pushed to the target repository. The production build, clean-install build, TypeScript check, 106 frontend tests, and 23 backend tests passed; three opt-in PostgreSQL tests were skipped. Backend dependency updates passed a repeat test run and reported zero audit findings. Frontend dependency audit findings remain recorded for release review. A public Render service is not yet confirmed. Update this section with the actual service URL and hosted acceptance results after deployment.
+LiftUp is live on Render Free at https://liftup-ldlv.onrender.com/ using commit 662f57c. The production build, clean npm 10 installation, 106 frontend tests, earlier TypeScript check and 23 backend tests passed; three opt-in PostgreSQL tests were skipped. Both production dependency audits reported zero findings; 22 moderate findings remain in frontend development tooling.
+
+Hosted HTTPS checks passed for registration, login/session rotation, completed set logging, workout completion, history retrieval, account isolation, CSV export and logout. Both temporary test accounts were removed and existing application records were verified unchanged. The public site, API, pose model and WASM assets loaded successfully. Chrome sign-in and history search were verified against the hosted UI.
+
+Phone mobile-data access, recovery after a natural idle period and camera rep accuracy remain to be tested on the user's Android phone. The APK belongs to the next phase.
+
+The service was created from the public repository. For subsequent releases, push the reviewed commit, then use Manual Deploy > Deploy latest commit in Render and verify the new deployment. Do not assume a Git push alone updates this service.
 
 ## Official references
 
