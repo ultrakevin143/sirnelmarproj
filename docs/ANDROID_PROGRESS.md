@@ -74,6 +74,20 @@ The user requested a horizontally mirrored camera preview. Release 1.0.3/code 4 
 
 The phone library was inspected at Android font scale 1.3 in both themes. Its two columns, wrapped exercise names, badges and favorite buttons remained readable. The original 1.0 font scale and portrait rotation settings were restored after testing.
 
+## Final signed build verification
+
+Release 1.0.3 (version code 4) built successfully, passed signature verification, and installed in place over the previous signed release on the Samsung phone. The account session, saved LB preference and records survived the update. The packaged camera stylesheet mirrors both video and canvas; the live preview and aligned pose overlay were visually confirmed on the phone. Stopping the preview released the camera, confirmed by Android's camera service disconnect event.
+
+The APK is not debuggable, targets Android 16/API 36 and supports API 24 or newer. Its SHA-256 is 0249CA71EE27DD35C3CBDC7CC2F64064705E212D530853977BEC5308E4B28A59. Local output: artifacts/android/LiftUp-release.apk. The signing material remains private under .tools/signing with a separate ignored local backup. Do not include that backup in submissions.
+
+Validation: 126 frontend tests across 17 files passed for kg/lb and mobile changes; the 18 camera regression tests passed after mirroring. The final mirrored SPA and Capacitor builds succeeded, as did Android release lint/build and the changed-source formatting/ESLint checks. A separate server session verified both conversion records and earlier test history after installation.
+
+## Hosted release verification
+
+The user deployed commit d6683c8 on the existing free Render service. On November 4, 2026, public verification confirmed that https://liftup-ldlv.onrender.com/ serves the same entry assets as the final local SPA build. The live weight-unit component contains the working KG/LB choices and persisted settings route; the live camera stylesheet mirrors video and canvas together.
+
+The deployed API health check returned 200 with the expected service identity. Unauthenticated workout access returned JSON 401. A separate authenticated test session retrieved the saved LB preference, the 100 lb/45.359237 kg workout, the interrupted-network fixture saved once, and the earlier test records. Database-backed features remained connected after deployment. No signing material or test credentials were published.
+
 Evidence is stored locally under artifacts/android. Camera frames, file-picker screenshots, credentials and test-account data are excluded from source control and submission screenshots.
 
 ## Remaining checks
@@ -81,6 +95,6 @@ Evidence is stored locally under artifacts/android. Camera frames, file-picker s
 - Compare counted reps with observed physical push-ups. The user explicitly deferred this test in favor of other checks.
 - Test the free backend's natural idle wake-up. Automated safe health-retry and failed-save/draft tests pass, but they do not replace this real-network check.
 - Password change/account deletion were not exercised through the phone UI during this run. Do not present them as device-tested.
-- Build/sign a release APK and collect final submission evidence. The current APK is a development build.
+- The signed release APK and private signing backup are generated locally. Final submission evidence is a separate step; do not include camera frames, credentials or signing material.
 
 See [Android setup](ANDROID_SETUP.md) for reproducible build instructions.
