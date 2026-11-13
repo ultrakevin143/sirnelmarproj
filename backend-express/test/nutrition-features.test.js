@@ -525,6 +525,14 @@ test("barcode retries, scoped label priority, serving basis, and idempotent PH i
   ).data.foods.filter((food) => food.barcode === label.barcode);
   assert.equal(visible.length, 1);
   assert.equal(visible[0].id, own.data.food.id);
+  const menu = await alice.request("/api/v1/nutrition/foods?q=McDonalds");
+  assert.equal(menu.data.foods.length, 26);
+  assert.ok(
+    menu.data.foods.every((food) => food.source !== "USDA FoodData Central"),
+  );
+  const bigMac = (await alice.request("/api/v1/nutrition/foods?q=Big%20Mac"))
+    .data.foods;
+  assert.equal(bigMac.filter((food) => /mcdo/i.test(food.name)).length, 1);
   const missing = await bob.request("/api/v1/nutrition/barcode", "POST", {
     barcode: "036000291452",
   });

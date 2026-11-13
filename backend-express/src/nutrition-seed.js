@@ -87,7 +87,7 @@ function readSeed(filename = path.join(__dirname, "data/ph_foods_seed.csv")) {
 async function seedPhFoods(database, filename) {
   const records = readSeed(filename);
   const hash = createHash("sha256")
-    .update(JSON.stringify(records))
+    .update(JSON.stringify({ version: 2, records }))
     .digest("hex");
   if (
     await database
@@ -98,6 +98,30 @@ async function seedPhFoods(database, filename) {
   )
     return { imported: 0, uniqueItems: records.length, unchanged: true };
   await database.transaction(async () => {
+    // Prefer the PH menu over equivalent older US catalogue entries, without deleting history.
+    const localMcdoNames = new Set(
+      records
+        .filter((record) => record.key.startsWith("mcdo:"))
+        .map((record) =>
+          canonicalFoodName(record.row.name)
+            .replace(/\bmcdo\b/g, "")
+            .trim(),
+        ),
+    );
+    const importedMcdo = await database
+      .prepare(
+        "SELECT id, name FROM nutrition_foods WHERE owner_user_id IS NULL AND source = 'USDA FoodData Central' AND archived_at IS NULL AND LOWER(name) LIKE '%mcdonald%'",
+      )
+      .all();
+    for (const food of importedMcdo) {
+      const itemName = canonicalFoodName(food.name)
+        .replace(/\bmcdo\b/g, "")
+        .trim();
+      if (localMcdoNames.has(itemName))
+        await database
+          .prepare("UPDATE nutrition_foods SET archived_at = ? WHERE id = ?")
+          .run(new Date().toISOString(), food.id);
+    }
     for (const { key, row, nutrients: n, metadata } of records) {
       const alias = legacy[key];
       const existing = await database

@@ -16,7 +16,7 @@ The CSV is `backend-express/src/data/ph_foods_seed.csv`: 34 records, consisting 
 
 Migration 015 adds barcode, canonical identity, source details, scoped uniqueness, nullable unknown macro values, serving-count logs, and import release tracking. A database constraint ties each identity scope to its owning account; global foods use scope zero. The database allows at most one barcode and canonical identity within each scope. Private foods never become public contributions automatically.
 
-Imported foods are identified by chain and normalized item name. Earlier matching Burger McDo, Chicken McDo with rice, Fries, Yumburger, and Jolly Spaghetti records are updated in place; historical food-log snapshots remain unchanged. Repeated identical CSV imports are skipped by content hash. Changed imports update existing IDs. Different portions or combinations remain separate foods. Missing calories are rejected; missing macro values remain NULL and make the affected daily total incomplete.
+Imported foods are identified by chain and normalized item name. Earlier matching Burger McDo, Chicken McDo with rice, Fries, Yumburger, and Jolly Spaghetti records are updated in place; historical food-log snapshots remain unchanged. Repeated identical CSV imports are skipped by content hash. Changed imports update existing IDs. Equivalent older USDA McDonald’s records are archived when a matching PH menu item exists. Restaurant-name searches show Philippine menu data, keeping the older US market entries out of those menus. Different portions or combinations remain separate foods. Missing calories are rejected; missing macro values remain NULL and make the affected daily total incomplete.
 
 Run the idempotent importer with `npm run db:seed-ph-foods` from backend-express. The catalogue also imports lazily through its existing initialization path.
 
@@ -52,3 +52,10 @@ Android version 1.0.5 (code 6) adds the native OCR plugin. Install this APK for 
 - https://openfoodfacts.github.io/openfoodfacts-server/api/
 - https://capawesome.io/docs/sdks/capacitor/mlkit/barcode-scanning/
 - https://developers.google.com/ml-kit/vision/text-recognition/v2
+
+## Verification evidence (13 November 2026)
+
+- All 129 frontend tests passed; the three barcode/label-parser tests were also repeated after the picker change. Type checking and targeted lint passed.
+- All six backend nutrition tests passed. The PostgreSQL integration check passed in an isolated schema and cleaned it up.
+- Native Android 1.0.5 built and installed successfully on the Samsung A73. Direct native OCR and the label parsing pipeline read the sample label correctly. The phone disconnected before the final native photo-picker UI check; that device check remains pending.
+- Live verification confirmed UPC/EAN saves reuse the same food ID, serving-based meal logging, and photo persistence. The temporary verification account was removed.

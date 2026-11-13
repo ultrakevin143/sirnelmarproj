@@ -326,7 +326,13 @@ function configureNutritionFeatures(
     await ensureCatalog();
     const query =
       typeof req.query.q === "string" ? req.query.q.trim().slice(0, 100) : "";
-    const tokens = query.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 5);
+    const normalizedQuery = query
+      .toLowerCase()
+      .replace(/mcdonald[’']?s?/g, "mcdo");
+    const phRestaurant = /\b(mcdo|jollibee|mang inasal)\b/.test(
+      normalizedQuery,
+    );
+    const tokens = normalizedQuery.split(/\s+/).filter(Boolean).slice(0, 5);
     const filters = tokens.map(() => "LOWER(f.name) LIKE ?").join(" AND ");
     const params = [userId(), userId()];
     for (const token of tokens)
@@ -337,6 +343,7 @@ function configureNutritionFeatures(
         `
       SELECT f.* FROM nutrition_foods f
       WHERE f.archived_at IS NULL AND (f.owner_user_id IS NULL OR f.owner_user_id = ?)
+        ${phRestaurant ? "AND f.source <> 'USDA FoodData Central'" : ""}
         AND (f.owner_user_id IS NOT NULL OR f.barcode IS NULL OR f.barcode NOT IN (
           SELECT barcode FROM nutrition_foods WHERE owner_user_id = ? AND archived_at IS NULL AND barcode IS NOT NULL
         ))
