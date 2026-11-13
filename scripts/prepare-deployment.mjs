@@ -37,6 +37,7 @@ await cp(path.join(root, 'docs/FREE_HOSTING_SETUP.md'), path.join(destination, '
 await cp(path.join(root, 'docs/ANDROID_SETUP.md'), path.join(destination, 'docs/ANDROID_SETUP.md'));
 await cp(path.join(root, 'docs/ANDROID_PROGRESS.md'), path.join(destination, 'docs/ANDROID_PROGRESS.md'));
 await cp(path.join(root, 'docs/NUTRITION_SCANNER_UPGRADE.md'), path.join(destination, 'docs/NUTRITION_SCANNER_UPGRADE.md'));
+await cp(path.join(root, 'docs/RESTAURANT_MENU_DATABASE.md'), path.join(destination, 'docs/RESTAURANT_MENU_DATABASE.md'));
 
 // A second pass refuses accidental credentials anywhere in the prepared source.
 const localEnv = await readFile(path.join(root, 'backend-express/.env'), 'utf8').catch(() => '');

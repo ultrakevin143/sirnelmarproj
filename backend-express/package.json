@@ -12,6 +12,7 @@
     "db:backup": "node scripts/backup-database.js",
     "db:migrate": "node scripts/migrate-database.js",
     "db:seed-ph-foods": "node scripts/seed-ph-foods.js",
+    "db:seed-restaurant-menus": "node scripts/seed-restaurant-menus.js",
     "db:smoke": "node scripts/smoke-live.js",
     "db:setup-test": "node scripts/setup-test-account.js"
   },

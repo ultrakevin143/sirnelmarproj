@@ -7,6 +7,7 @@
 !backend-express/src/data/usda-fndds-2021-2023.json
 !backend-express/src/data/ph-fast-food-estimates.json
 !backend-express/src/data/ph_foods_seed.csv
+!backend-express/src/data/restaurant-menu-catalog.json
 **/.tools/
 **/*.sqlite*
 **/*.log
