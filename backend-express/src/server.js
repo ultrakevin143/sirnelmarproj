@@ -192,6 +192,8 @@ async function createApp({ schema, testSchema, memory = false, ...deployment } =
   configureNutritionFeatures(app, database, {
     userId,
     fetchImpl: deployment.fetchImpl ?? globalThis.fetch,
+    sleepImpl: deployment.sleepImpl,
+    now: deployment.now,
   });
   app.get('/api/health', (_req, res) => res.json({ status: 'ok', service: 'gym-tracker-api' }));
 

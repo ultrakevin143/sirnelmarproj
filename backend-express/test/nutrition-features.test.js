@@ -2,9 +2,14 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { once } = require("node:events");
 const { createApp } = require("../src/server");
+const { newTestSchema } = require("../src/database");
 
 async function fixture(t, appOptions = {}) {
-  const service = await createApp({ memory: true, ...appOptions });
+  const storage =
+    process.env.LIFTUP_TEST_DATABASE === "postgres"
+      ? { testSchema: true, schema: newTestSchema() }
+      : { memory: true };
+  const service = await createApp({ ...storage, ...appOptions });
   const server = service.app.listen(0, "127.0.0.1");
   await once(server, "listening");
   t.after(async () => {
@@ -60,14 +65,22 @@ test("nutrition catalogue, targets, food and water logs stay account-scoped and 
   assert.ok(
     mcdo.data.foods.some(
       (food) =>
-        food.source === "LiftUp PH Menu Estimates" &&
-        food.name.includes("Chicken McDo, 1 pc with rice"),
+        food.source === "mcdo_ph_site" &&
+        food.name.includes("1pc Chicken McDo with Rice"),
     ),
   );
   const jollibee = await alice.request("/api/v1/nutrition/foods?q=Jollibee");
-  assert.ok(jollibee.data.foods.some((food) => food.name.includes("Chickenjoy")));
-  const mangInasal = await alice.request("/api/v1/nutrition/foods?q=Mang%20Inasal");
-  assert.ok(mangInasal.data.foods.some((food) => food.name.includes("Chicken Inasal Paa")));
+  assert.ok(
+    jollibee.data.foods.some((food) => food.name.includes("Chickenjoy")),
+  );
+  const mangInasal = await alice.request(
+    "/api/v1/nutrition/foods?q=Mang%20Inasal",
+  );
+  assert.ok(
+    mangInasal.data.foods.some((food) =>
+      food.name.includes("Chicken Inasal Paa"),
+    ),
+  );
   const riceAdobo = adobo.data.foods.find(
     (food) => food.name === "Adobo, with rice",
   );
@@ -287,7 +300,7 @@ test("barcode nutrition labels and private meal photos are saved with owner-scop
   let lookups = 0;
   const fetchImpl = async (url, options) => {
     lookups += 1;
-    assert.match(new URL(url).pathname, /\/api\/v3\/product\/1234567890123$/);
+    assert.match(new URL(url).pathname, /\/api\/v3\/product\/4807770273698$/);
     assert.match(options.headers["User-Agent"], /^LiftUp\//);
     return {
       status: 200,
@@ -316,14 +329,14 @@ test("barcode nutrition labels and private meal photos are saved with owner-scop
   const bob = await register("nutrition-barcode-bob@example.test");
 
   const scanned = await alice.request("/api/v1/nutrition/barcode", "POST", {
-    barcode: "1234567890123",
+    barcode: "4807770273698",
   });
   assert.equal(scanned.status, 201);
   assert.equal(scanned.data.food.source, "Open Food Facts");
   assert.equal(scanned.data.food.name, "Test oat bar");
   assert.equal(scanned.data.food.portions[0].grams, 35);
   const cached = await alice.request("/api/v1/nutrition/barcode", "POST", {
-    barcode: "1234567890123",
+    barcode: "4807770273698",
   });
   assert.equal(cached.status, 200);
   assert.equal(cached.data.cached, true);
@@ -384,4 +397,227 @@ test("barcode nutrition labels and private meal photos are saved with owner-scop
     ).status,
     404,
   );
+});
+
+test("barcode retries, scoped label priority, serving basis, and idempotent PH imports", async (t) => {
+  const { seedPhFoods } = require("../src/nutrition-seed");
+  let calls = 0;
+  let clock = Date.parse("2026-11-13T08:00:00Z");
+  const waits = [];
+  const { database, register } = await fixture(t, {
+    now: () => clock,
+    sleepImpl: async (ms) => {
+      waits.push(ms);
+    },
+    fetchImpl: async (url) => {
+      calls++;
+      if (calls === 1) return { status: 503, ok: false };
+      if (new URL(url).pathname.endsWith("/0036000291452"))
+        return { status: 404, ok: false };
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({
+          status: "success",
+          product: {
+            product_name: "Pancit Canton Chilimansi",
+            brands: "Monde Nissin",
+            nutriments: {
+              "energy-kcal_100g": 450,
+              proteins_100g: 10,
+              carbohydrates_100g: 60,
+              fat_100g: 20,
+            },
+          },
+        }),
+      };
+    },
+  });
+  const alice = await register("nutrition-dedup-alice@example.test");
+  const bob = await register("nutrition-dedup-bob@example.test");
+  const legacy = await database
+    .prepare(
+      `INSERT INTO nutrition_foods (source,source_id,source_release,name,category,calories_kcal,protein_g,carbohydrate_g,fat_g,fiber_g,portions_json,components_json,created_at) VALUES ('LiftUp PH Menu Estimates','mcdo-burger-mcdo-v1','Old estimate','McDonald''s PH · Burger McDo (estimate)','McDonald''s Philippines',257,13.9,25.5,10.5,NULL,'[]','[]',?) RETURNING id`,
+    )
+    .run(new Date().toISOString());
+  await database
+    .prepare(
+      `INSERT INTO nutrition_entries (user_id,food_id,food_name,source,source_release,local_date,logged_at,meal_type,amount_grams,calories_kcal,protein_g,carbohydrate_g,fat_g,request_key) VALUES (?,?,'Old Burger McDo','LiftUp PH Menu Estimates','Old estimate','2026-11-12',?,'Lunch',100,257,13.9,25.5,10.5,'legacy-snapshot-001') RETURNING id`,
+    )
+    .run(
+      (await alice.request("/api/auth/me")).data.user.id,
+      legacy.lastInsertRowid,
+      new Date().toISOString(),
+    );
+  assert.equal(
+    (
+      await alice.request("/api/v1/nutrition/barcode", "POST", {
+        barcode: "4807770273699",
+      })
+    ).status,
+    422,
+  );
+  assert.equal(calls, 0);
+  const first = await alice.request("/api/v1/nutrition/barcode", "POST", {
+    barcode: "4807770273698",
+  });
+  assert.equal(first.status, 201);
+  assert.equal(calls, 2);
+  assert.ok(waits.includes(1000));
+  const cached = await bob.request("/api/v1/nutrition/barcode", "POST", {
+    barcode: "4807770273698",
+  });
+  assert.equal(cached.data.food.id, first.data.food.id);
+  assert.equal(calls, 2);
+  clock += 86400001;
+  const refreshed = await alice.request("/api/v1/nutrition/barcode", "POST", {
+    barcode: "4807770273698",
+  });
+  assert.equal(refreshed.data.food.id, first.data.food.id);
+  assert.equal(calls, 3);
+  const label = {
+    name: "Pancit Canton confirmed label",
+    barcode: "4807770273698",
+    basis: "per_serving",
+    source: "label_scan",
+    labelConfirmed: true,
+    caloriesKcal: 320,
+    proteinG: 8,
+    carbohydrateG: 40,
+    fatG: 14,
+  };
+  assert.equal(
+    (
+      await alice.request("/api/v1/nutrition/foods", "POST", {
+        ...label,
+        labelConfirmed: false,
+      })
+    ).status,
+    422,
+  );
+  const own = await alice.request("/api/v1/nutrition/foods", "POST", label);
+  assert.equal(
+    own.status,
+    201,
+    JSON.stringify({
+      response: own.data,
+      rows: await database
+        .prepare(
+          "SELECT id, owner_user_id, canonical_key, barcode FROM nutrition_foods WHERE barcode = ?",
+        )
+        .all(label.barcode),
+    }),
+  );
+  const again = await alice.request("/api/v1/nutrition/foods", "POST", label);
+  assert.equal(again.data.food.id, own.data.food.id);
+  assert.equal(again.status, 200);
+  const ownLookup = await alice.request("/api/v1/nutrition/barcode", "POST", {
+    barcode: label.barcode,
+  });
+  assert.equal(ownLookup.data.food.id, own.data.food.id);
+  assert.equal(calls, 3);
+  const otherLookup = await bob.request("/api/v1/nutrition/barcode", "POST", {
+    barcode: label.barcode,
+  });
+  assert.equal(otherLookup.data.food.id, first.data.food.id);
+  const visible = (
+    await alice.request("/api/v1/nutrition/foods?q=Pancit")
+  ).data.foods.filter((food) => food.barcode === label.barcode);
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0].id, own.data.food.id);
+  const missing = await bob.request("/api/v1/nutrition/barcode", "POST", {
+    barcode: "036000291452",
+  });
+  assert.equal(missing.status, 404);
+  assert.equal(missing.data.barcode, "0036000291452");
+  assert.equal(missing.data.notFound, true);
+  const upcLabel = {
+    ...label,
+    name: "Canonical UPC label",
+    barcode: "036000291452",
+  };
+  const upc = await alice.request("/api/v1/nutrition/foods", "POST", upcLabel);
+  const ean = await alice.request("/api/v1/nutrition/foods", "POST", {
+    ...upcLabel,
+    barcode: "0036000291452",
+  });
+  assert.equal(upc.status, 201);
+  assert.equal(ean.status, 200);
+  assert.equal(ean.data.food.id, upc.data.food.id);
+  assert.equal(ean.data.food.barcode, "0036000291452");
+  assert.equal(
+    (
+      await alice.request("/api/v1/nutrition/foods", "POST", {
+        ...label,
+        fatG: -1,
+      })
+    ).status,
+    422,
+  );
+  assert.equal(
+    (
+      await alice.request("/api/v1/nutrition/foods", "POST", {
+        ...label,
+        caloriesKcal: 5001,
+      })
+    ).status,
+    422,
+  );
+  const serving = await alice.request("/api/v1/nutrition/entries", "POST", {
+    foodId: own.data.food.id,
+    amountServings: 0.5,
+    localDate: "2026-11-13",
+    mealType: "Snack",
+    requestKey: "label-half-serving-001",
+  });
+  assert.equal(serving.status, 201);
+  assert.equal(serving.data.entry.caloriesKcal, 160);
+  const before = (
+    await database
+      .prepare(
+        "SELECT COUNT(*) AS count FROM nutrition_foods WHERE owner_user_id IS NULL AND archived_at IS NULL",
+      )
+      .get()
+  ).count;
+  await seedPhFoods(database);
+  await seedPhFoods(database);
+  const after = (
+    await database
+      .prepare(
+        "SELECT COUNT(*) AS count FROM nutrition_foods WHERE owner_user_id IS NULL AND archived_at IS NULL",
+      )
+      .get()
+  ).count;
+  assert.equal(after, before);
+  const burgers = await alice.request(
+    "/api/v1/nutrition/foods?q=Burger%20McDo",
+  );
+  assert.equal(
+    burgers.data.foods.filter((f) => f.name.endsWith("Burger McDo")).length,
+    1,
+  );
+  assert.equal(
+    burgers.data.foods.find((f) => f.name.endsWith("Burger McDo")).id,
+    legacy.lastInsertRowid,
+  );
+  const history = await alice.request(
+    "/api/v1/nutrition/entries?date=2026-11-12",
+  );
+  assert.equal(history.data.entries[0].caloriesKcal, 257);
+  assert.equal(history.data.entries[0].foodName, "Old Burger McDo");
+  const yum = (await alice.request("/api/v1/nutrition/foods?q=Yumburger")).data
+    .foods[0];
+  assert.equal(yum.basis, "per_serving");
+  assert.equal(yum.nutrients.proteinG, null);
+  const logged = await alice.request("/api/v1/nutrition/entries", "POST", {
+    foodId: yum.id,
+    amountServings: 1,
+    localDate: "2026-11-14",
+    mealType: "Lunch",
+    requestKey: "unknown-yum-macros-001",
+  });
+  assert.equal(logged.status, 201);
+  const day = await alice.request("/api/v1/nutrition/entries?date=2026-11-14");
+  assert.equal(day.data.totals.proteinG, null);
+  assert.equal(day.data.totals.caloriesKcal, 280);
 });
