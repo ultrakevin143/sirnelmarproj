@@ -2,6 +2,11 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import axios from 'axios';
 import { Capacitor } from '@capacitor/core';
+import {
+  normalizeBarcode,
+  createBarcodeStabilizer,
+  parseNutritionLabel,
+} from '../utils/nutritionBarcode';
 
 type MacroKey = 'caloriesKcal' | 'proteinG' | 'carbohydrateG' | 'fatG' | 'fiberG';
 type MealType = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
@@ -14,6 +19,22 @@ type FoodSource = {
   nutrientsPer100g: Record<MacroKey, number | null>;
   portions: Array<{ name: string; grams: number }>;
   isCustom: boolean;
+  basis?: 'per_100g' | 'per_serving';
+  nutrients?: Record<MacroKey, number | null>;
+  barcode?: string | null;
+  details?: {
+    confidence?: string;
+    needsReview?: boolean;
+    reviewReason?: string;
+    notes?: string;
+    sourceUrl?: string;
+    retrievedAt?: string;
+    servingSizeText?: string;
+    brand?: string;
+    sugarG?: number | null;
+    sodiumMg?: number | null;
+    attribution?: string;
+  };
 };
 type Goals = Record<MacroKey | 'waterMl', number | null>;
 type FoodEntry = {
@@ -26,12 +47,13 @@ type FoodEntry = {
   mealType: MealType;
   amountGrams: number;
   caloriesKcal: number;
-  proteinG: number;
-  carbohydrateG: number;
-  fatG: number;
+  proteinG: number | null;
+  carbohydrateG: number | null;
+  fatG: number | null;
   fiberG: number | null;
   hasPhoto?: boolean;
   photoData?: string;
+  amountServings?: number | null;
 };
 type WaterEntry = { id: number; amountMl: number; localDate: string; loggedAt: string };
 type DayData = {
@@ -39,9 +61,9 @@ type DayData = {
   entries: FoodEntry[];
   totals: {
     caloriesKcal: number;
-    proteinG: number;
-    carbohydrateG: number;
-    fatG: number;
+    proteinG: number | null;
+    carbohydrateG: number | null;
+    fatG: number | null;
     fiberG: number | null;
   };
   goals: Goals | null;
@@ -70,7 +92,7 @@ function newRequestKey() {
 }
 
 function nullableNumber(value: number | string | null) {
-  return value === '' || value == null ? null : Number(value);
+  return value == null || (typeof value === 'string' && value.trim() === '') ? null : Number(value);
 }
 
 const selectedDate = ref(localDateToday());
@@ -99,6 +121,17 @@ const goalsError = ref('');
 const foodDialog = ref(false);
 const goalsDialog = ref(false);
 const customFoodDialog = ref(false);
+const manualBarcodeDialog = ref(false);
+const manualBarcode = ref('');
+const manualBarcodeFormat = ref('');
+const torchAvailable = ref(false);
+const torchEnabled = ref(false);
+const mealPhotoPicking = ref(false);
+const labelPhoto = ref('');
+const labelText = ref('');
+const labelBusy = ref(false);
+const labelConfirmed = ref(false);
+const labelMode = ref(false);
 const selectedFood = ref<FoodSource | null>(null);
 const amountGrams = ref<number | null>(100);
 const pendingFoodKey = ref('');
@@ -113,12 +146,42 @@ const goalDraft = reactive<Record<MacroKey | 'waterMl', number | string | null>>
 });
 const customFoodDraft = reactive({
   name: '',
+  barcode: '',
+  brand: '',
+  basis: 'per_100g',
+  servingSizeText: '',
+  sugarG: null as number | string | null,
+  sodiumMg: null as number | string | null,
   caloriesKcal: null as number | string | null,
   proteinG: null as number | string | null,
   carbohydrateG: null as number | string | null,
   fatG: null as number | string | null,
   fiberG: null as number | string | null,
   defaultServingGrams: null as number | string | null,
+});
+watch(
+  customFoodDraft,
+  () => {
+    labelConfirmed.value = false;
+  },
+  { deep: true },
+);
+const customUnit = computed(() =>
+  customFoodDraft.basis === 'per_serving' ? 'per serving' : 'per 100 g',
+);
+const customQualityWarning = computed(() => {
+  const values = [
+    customFoodDraft.caloriesKcal,
+    customFoodDraft.proteinG,
+    customFoodDraft.carbohydrateG,
+    customFoodDraft.fatG,
+  ].map(nullableNumber);
+  if (values.some((value) => value == null))
+    return 'Some macros are unknown. Daily macro totals will show as incomplete.';
+  const [kcal = 0, p = 0, c = 0, f = 0] = values as number[];
+  return Math.abs(4 * p + 4 * c + 9 * f - kcal) > Math.max(2, kcal * 0.1)
+    ? 'Calories and macros differ by more than 10%. Recheck the label; this food will be flagged for review.'
+    : '';
 });
 let dayRequestVersion = 0;
 let foodRequestVersion = 0;
@@ -177,7 +240,7 @@ const entriesByMeal = computed(
 );
 
 function valueFor(key: MacroKey) {
-  return totals.value[key] ?? 0;
+  return totals.value[key];
 }
 
 function goalFor(key: MacroKey) {
@@ -186,7 +249,7 @@ function goalFor(key: MacroKey) {
 
 function progressFor(key: MacroKey) {
   const target = goalFor(key);
-  return target ? Math.min(1, valueFor(key) / target) : 0;
+  return target ? Math.min(1, (valueFor(key) ?? 0) / target) : 0;
 }
 
 function formatAmount(value: number | null | undefined, digits = 0) {
@@ -196,19 +259,37 @@ function formatAmount(value: number | null | undefined, digits = 0) {
 
 function sourceLabel(source: string) {
   if (source === 'USDA FoodData Central') return 'USDA FNDDS';
-  if (source === 'Open Food Facts') return 'Open Food Facts label';
+  if (source === 'Open Food Facts') return 'Open Food Facts (ODbL)';
+  if (source === 'mcdo_ph_site') return "McDonald's PH website";
+  if (source === 'phil_fct') return 'PhilFCT supplied data';
+  if (source === 'label_scan') return 'Your confirmed label';
+  if (source === 'estimate') return 'Menu estimate';
   if (source === 'LiftUp PH Menu Estimates') return 'Menu estimate';
   return 'Personal food';
 }
 
 function menuImage(name: string, source: string) {
-  if (source !== 'LiftUp PH Menu Estimates') return '';
+  if (!['LiftUp PH Menu Estimates', 'mcdo_ph_site', 'estimate'].includes(source)) return '';
   if (/spaghetti/i.test(name)) return '/images/meals/spaghetti.jpg';
   if (/burger/i.test(name)) return '/images/meals/burger.jpg';
   if (/fries/i.test(name)) return '/images/meals/fries.jpg';
   if (/Pork BBQ/i.test(name)) return '/images/meals/pork-bbq.jpg';
   if (/Inasal/i.test(name)) return '/images/meals/grilled-rice.jpg';
-  return '/images/meals/chicken-rice.jpg';
+  return /Chicken.*rice/i.test(name) ? '/images/meals/chicken-rice.jpg' : '';
+}
+
+function confidenceLabel(food: FoodSource) {
+  if (food.details?.confidence === 'official') return 'Official source';
+  if (food.details?.confidence === 'community') return 'Community data';
+  if (food.details?.confidence === 'user' || food.isCustom) return 'Your entry';
+  return 'Estimate';
+}
+
+function foodBasis(food: FoodSource) {
+  return food.basis === 'per_serving' ? 'per serving' : 'per 100 g';
+}
+function foodNutrients(food: FoodSource) {
+  return food.nutrients || food.nutrientsPer100g;
 }
 
 async function loadDay() {
@@ -294,7 +375,11 @@ function openFood(food: FoodSource, meal = activeMeal.value) {
     food.source === 'Open Food Facts' ||
     food.source === 'LiftUp PH Menu Estimates';
   amountGrams.value =
-    usesServingAmount && suggestedPortion ? Math.round(suggestedPortion.grams) : 100;
+    food.basis === 'per_serving'
+      ? 1
+      : usesServingAmount && suggestedPortion
+        ? Math.round(suggestedPortion.grams)
+        : 100;
   mealPhoto.value = stagedMealPhoto.value;
   mealPhotoError.value = '';
   pendingFoodKey.value = newRequestKey();
@@ -307,17 +392,20 @@ function usePortion(grams: number) {
 }
 
 function estimate(food: FoodSource, key: MacroKey) {
-  const nutrient = food.nutrientsPer100g[key];
+  const nutrient = foodNutrients(food)[key];
   if (nutrient == null || !amountGrams.value) return '—';
-  return formatAmount((nutrient * amountGrams.value) / 100, key === 'caloriesKcal' ? 0 : 1);
+  return formatAmount(
+    (nutrient * amountGrams.value) / (food.basis === 'per_serving' ? 1 : 100),
+    key === 'caloriesKcal' ? 0 : 1,
+  );
 }
 
 async function addFood() {
   if (
     !selectedFood.value ||
     !amountGrams.value ||
-    amountGrams.value < 1 ||
-    amountGrams.value > 5000
+    amountGrams.value < (selectedFood.value.basis === 'per_serving' ? 0.1 : 1) ||
+    amountGrams.value > (selectedFood.value.basis === 'per_serving' ? 20 : 5000)
   )
     return;
   saving.value = true;
@@ -336,7 +424,9 @@ async function addFood() {
     }
     await axios.post('/api/v1/nutrition/entries', {
       foodId: selectedFood.value.id,
-      amountGrams: amountGrams.value,
+      ...(selectedFood.value.basis === 'per_serving'
+        ? { amountServings: amountGrams.value }
+        : { amountGrams: amountGrams.value }),
       localDate: selectedDate.value,
       mealType: activeMeal.value,
       requestKey: pendingFoodKey.value || newRequestKey(),
@@ -396,11 +486,53 @@ async function removeFood(entry: FoodEntry) {
 }
 
 function openCameraPhotoPicker() {
+  if (isAndroid) return void pickMealPhoto('camera');
   cameraPhotoInput.value?.click();
 }
 
 function openGalleryPhotoPicker() {
+  if (isAndroid) return void pickMealPhoto('photos');
   galleryPhotoInput.value?.click();
+}
+
+function photoWasCancelled(error: unknown) {
+  return /cancel|no image selected/i.test(error instanceof Error ? error.message : String(error));
+}
+
+async function pickNativePhoto(source: 'camera' | 'photos') {
+  const { Camera, CameraSource, CameraResultType } = await import('@capacitor/camera');
+  // Base64 crosses the native bridge safely; Android picker File objects can be unreadable.
+  const photo = await Camera.getPhoto({
+    source: source === 'camera' ? CameraSource.Camera : CameraSource.Photos,
+    resultType: CameraResultType.Base64,
+    quality: 85,
+    width: 2048,
+    height: 2048,
+    correctOrientation: true,
+    saveToGallery: false,
+  });
+  if (!photo.base64String) throw new Error('The selected photo could not be read.');
+  return `data:image/${photo.format};base64,${photo.base64String}`;
+}
+
+async function pickMealPhoto(source: 'camera' | 'photos') {
+  if (mealPhotoPicking.value) return;
+  mealPhotoPicking.value = true;
+  mealPhotoError.value = '';
+  try {
+    const dataUrl = await pickNativePhoto(source);
+    const blob = await (await fetch(dataUrl)).blob();
+    const compressed = await compressMealPhoto(new File([blob], 'meal.jpg', { type: blob.type }));
+    stagedMealPhoto.value = compressed;
+    mealPhoto.value = compressed;
+    pageMessage.value = 'Photo ready. Choose a food and save it with your meal.';
+  } catch (error) {
+    if (!photoWasCancelled(error))
+      mealPhotoError.value =
+        'Could not open this photo. Check camera access or choose another image.';
+  } finally {
+    mealPhotoPicking.value = false;
+  }
 }
 
 function blobToDataUrl(blob: Blob) {
@@ -415,11 +547,11 @@ function blobToDataUrl(blob: Blob) {
   });
 }
 
-async function compressMealPhoto(file: File) {
+async function compressMealPhoto(file: File, maximumSide = 1280) {
   if (!file.type.startsWith('image/')) throw new Error('Choose an image file.');
   const bitmap = await createImageBitmap(file);
   const canvas = document.createElement('canvas');
-  let longestSide = Math.min(1280, Math.max(bitmap.width, bitmap.height));
+  let longestSide = Math.min(maximumSide, Math.max(bitmap.width, bitmap.height));
   let quality = 0.82;
   try {
     for (let attempt = 0; attempt < 7; attempt += 1) {
@@ -469,11 +601,33 @@ async function stopActiveBarcodeScan() {
   const stop = stopBarcodeScan;
   stopBarcodeScan = null;
   barcodeScanActive.value = false;
+  torchEnabled.value = false;
+  torchAvailable.value = false;
   document.body.classList.remove('barcode-scanner-active');
   if (stop) await stop().catch(() => {});
 }
 
-async function lookupBarcode(barcode: string) {
+function openMissingProduct(barcode: string, name = '') {
+  openCustomFood();
+  customFoodDraft.barcode = barcode;
+  customFoodDraft.name = name;
+  customFoodDraft.basis = 'per_serving';
+  labelMode.value = true;
+  foodError.value =
+    'This product needs label values. Photograph the Nutrition Facts panel or enter them below, then check every field.';
+}
+
+async function lookupBarcode(value: string) {
+  const barcode = normalizeBarcode(value);
+  if (!barcode) {
+    barcodeError.value = 'Check every digit, including the final check digit.';
+    return;
+  }
+  if (!navigator.onLine) {
+    barcodeError.value =
+      'You are offline. Connect to look up or save a product. Label text can still be read on this phone.';
+    return;
+  }
   try {
     const response = await axios.post<{ food: FoodSource }>('/api/v1/nutrition/barcode', {
       barcode,
@@ -481,21 +635,49 @@ async function lookupBarcode(barcode: string) {
     const food = response.data.food;
     foods.value = [food, ...foods.value.filter((item) => item.id !== food.id)].slice(0, 60);
     foodQuery.value = food.name;
+    manualBarcodeDialog.value = false;
     openFood(food);
-    pageMessage.value =
-      'Scanned product found. Check its serving and nutrition label before saving.';
+    pageMessage.value = 'Product found. Check its serving and source before saving.';
   } catch (error) {
     const status = axios.isAxiosError(error) ? error.response?.status : undefined;
-    const responseError = axios.isAxiosError(error)
-      ? (error.response?.data as { error?: unknown } | undefined)?.error
+    const data = axios.isAxiosError(error)
+      ? (error.response?.data as
+          { error?: string; needsLabel?: boolean; productName?: string } | undefined)
       : undefined;
+    if (status === 404 || (status === 422 && data?.needsLabel)) {
+      manualBarcodeDialog.value = false;
+      openMissingProduct(barcode, data?.productName || '');
+      return;
+    }
     barcodeError.value =
-      status === 404
-        ? 'No product was found for that barcode. Search the catalogue or add it as a personal food.'
-        : status === 422
-          ? (typeof responseError === 'string' && responseError) ||
-            'This barcode does not have a complete nutrition panel.'
-          : 'Could not look up this barcode. Check your connection and try again.';
+      data?.error || 'Could not look up this barcode. Check your connection and try again.';
+  }
+}
+
+async function submitManualBarcode() {
+  if (barcodeBusy.value) return;
+  barcodeBusy.value = true;
+  barcodeError.value = '';
+  try {
+    const code = normalizeBarcode(manualBarcode.value, manualBarcodeFormat.value);
+    if (!code) {
+      barcodeError.value =
+        'That barcode has an invalid check digit. Check the digits and code type.';
+      return;
+    }
+    await lookupBarcode(code);
+  } finally {
+    barcodeBusy.value = false;
+  }
+}
+
+async function toggleScannerTorch() {
+  try {
+    const { BarcodeScanner } = await import('@capacitor-mlkit/barcode-scanning');
+    await BarcodeScanner.toggleTorch();
+    torchEnabled.value = (await BarcodeScanner.isTorchEnabled()).enabled;
+  } catch {
+    barcodeError.value = 'The torch is unavailable on this camera.';
   }
 }
 
@@ -503,40 +685,41 @@ async function scanBarcode() {
   if (!isAndroid || barcodeBusy.value) return;
   barcodeBusy.value = true;
   barcodeError.value = '';
+  torchAvailable.value = false;
+  torchEnabled.value = false;
   try {
-    const { BarcodeScanner, BarcodeFormat, LensFacing } =
+    const { BarcodeScanner, BarcodeFormat, LensFacing, Resolution } =
       await import('@capacitor-mlkit/barcode-scanning');
-    const support = await BarcodeScanner.isSupported();
-    if (!support.supported) {
-      barcodeError.value = 'This phone does not support barcode scanning.';
+    if (!(await BarcodeScanner.isSupported()).supported) {
+      barcodeError.value =
+        'No supported camera was found. Enter the barcode or choose a barcode photo.';
       return;
     }
     let { camera } = await BarcodeScanner.checkPermissions();
+    if (camera !== 'granted') ({ camera } = await BarcodeScanner.requestPermissions());
     if (camera !== 'granted') {
-      ({ camera } = await BarcodeScanner.requestPermissions());
-    }
-    if (camera !== 'granted') {
-      barcodeError.value = 'Allow camera access in LiftUp settings to scan a food barcode.';
+      barcodeError.value =
+        'Camera access was denied. Allow camera access in Android settings, or enter the barcode manually.';
       return;
     }
+    const stableRead = createBarcodeStabilizer(2);
     barcodeScanActive.value = true;
     document.body.classList.add('barcode-scanner-active');
     const listener = await BarcodeScanner.addListener('barcodesScanned', ({ barcodes }) => {
       void (async () => {
         if (!barcodeScanActive.value) return;
-        const barcode = barcodes[0];
+        const read = barcodes[0];
+        if (!read) return;
+        const barcode = stableRead(read.rawValue || read.displayValue || '', read.format);
         if (!barcode) return;
-        const scanned = (barcode.rawValue || barcode.displayValue || '').trim();
         await stopActiveBarcodeScan();
-        if (!/^\d{8,14}$/.test(scanned)) {
-          barcodeError.value = 'That code is not a supported food product barcode.';
+        try {
+          await lookupBarcode(barcode);
+        } finally {
           barcodeBusy.value = false;
-          return;
         }
-        await lookupBarcode(scanned);
-        barcodeBusy.value = false;
       })().catch(() => {
-        barcodeError.value = 'Could not read that barcode. Try scanning it again.';
+        barcodeError.value = 'Could not read that barcode. Try again.';
         barcodeBusy.value = false;
       });
     });
@@ -544,16 +727,139 @@ async function scanBarcode() {
       await listener.remove();
       await BarcodeScanner.stopScan();
     };
+    const errors = await BarcodeScanner.addListener('scanError', () => {
+      void stopActiveBarcodeScan().finally(() => {
+        barcodeBusy.value = false;
+        barcodeError.value = 'The camera stopped. Try again or enter the barcode.';
+      });
+    });
+    stopBarcodeScan = async () => {
+      await listener.remove();
+      await errors.remove();
+      await BarcodeScanner.stopScan();
+      torchEnabled.value = false;
+    };
     await BarcodeScanner.startScan({
       formats: [BarcodeFormat.Ean8, BarcodeFormat.Ean13, BarcodeFormat.UpcA, BarcodeFormat.UpcE],
       lensFacing: LensFacing.Back,
+      resolution: Resolution['1280x720'],
     });
+    torchAvailable.value = (
+      await BarcodeScanner.isTorchAvailable().catch(() => ({ available: false }))
+    ).available;
   } catch {
     await stopActiveBarcodeScan();
-    barcodeError.value = 'Could not start the scanner. Check camera access and try again.';
-    barcodeBusy.value = false;
+    barcodeError.value =
+      'Could not open the rear camera. Check camera access, or use manual/photo entry.';
   } finally {
     if (!barcodeScanActive.value) barcodeBusy.value = false;
+  }
+}
+
+async function withNativeImage<T>(
+  dataUrl: string,
+  work: (path: string, dataUrl: string) => Promise<T>,
+) {
+  const { Filesystem, Directory } = await import('@capacitor/filesystem');
+  const path = `nutrition-label-${newRequestKey()}.jpg`;
+  const saved = await Filesystem.writeFile({
+    path,
+    directory: Directory.Cache,
+    data: dataUrl.split(',')[1] || '',
+  });
+  try {
+    return await work(saved.uri, dataUrl);
+  } finally {
+    await Filesystem.deleteFile({ path, directory: Directory.Cache }).catch(() => {});
+  }
+}
+
+async function handleBarcodePhoto() {
+  if (!isAndroid || barcodeBusy.value) return;
+  barcodeBusy.value = true;
+  barcodeError.value = '';
+  try {
+    const { BarcodeScanner, BarcodeFormat } = await import('@capacitor-mlkit/barcode-scanning');
+    const dataUrl = await pickNativePhoto('photos');
+    const result = await withNativeImage(dataUrl, (path) =>
+      BarcodeScanner.readBarcodesFromImage({
+        path,
+        formats: [BarcodeFormat.Ean8, BarcodeFormat.Ean13, BarcodeFormat.UpcA, BarcodeFormat.UpcE],
+      }),
+    );
+    const codes = [
+      ...new Set(
+        result.barcodes
+          .map((read) => normalizeBarcode(read.rawValue || read.displayValue || '', read.format))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ];
+    if (codes.length !== 1) {
+      barcodeError.value = codes.length
+        ? 'More than one barcode was found. Crop to one product or enter its barcode.'
+        : 'No valid food barcode was found. Try a clearer photo or enter it manually.';
+      return;
+    }
+    await lookupBarcode(codes[0] || '');
+  } catch (error) {
+    if (!photoWasCancelled(error))
+      barcodeError.value =
+        'Could not read that photo. Use a clear barcode photo or enter the digits.';
+  } finally {
+    barcodeBusy.value = false;
+  }
+}
+
+async function handleLabelPhoto(source: 'camera' | 'photos') {
+  if (!isAndroid || labelBusy.value) return;
+  labelBusy.value = true;
+  labelConfirmed.value = false;
+  foodError.value = '';
+  try {
+    const photo = await pickNativePhoto(source);
+    labelPhoto.value = '';
+    labelText.value = '';
+    labelMode.value = true;
+    for (const key of [
+      'caloriesKcal',
+      'proteinG',
+      'carbohydrateG',
+      'fatG',
+      'fiberG',
+      'sugarG',
+      'sodiumMg',
+      'defaultServingGrams',
+    ] as const)
+      customFoodDraft[key] = null;
+    const { TextRecognition, Script } = await import('@capacitor-mlkit/text-recognition');
+    const result = await withNativeImage(photo, async (path, dataUrl) => {
+      labelPhoto.value = dataUrl;
+      return TextRecognition.processImage({ path, script: Script.Latin });
+    });
+    labelText.value = result.text;
+    const parsed = parseNutritionLabel(result.text);
+    // Start from unknown fields so a previous photo cannot leave stale values behind.
+    for (const key of [
+      'caloriesKcal',
+      'proteinG',
+      'carbohydrateG',
+      'fatG',
+      'fiberG',
+      'sugarG',
+      'sodiumMg',
+      'defaultServingGrams',
+    ] as const)
+      customFoodDraft[key] = parsed.fields[key] ?? null;
+    customFoodDraft.basis = parsed.basis;
+    labelMode.value = true;
+    foodError.value =
+      'Text is a draft. Check the serving basis and every value against your photo. Leave unavailable values blank.';
+  } catch (error) {
+    if (!photoWasCancelled(error))
+      foodError.value =
+        'Could not read the label. Try a clearer photo, check camera access, or enter the values manually.';
+  } finally {
+    labelBusy.value = false;
   }
 }
 
@@ -594,6 +900,25 @@ function handleFoodDialogHide() {
 }
 
 function openCustomFood() {
+  Object.assign(customFoodDraft, {
+    name: '',
+    barcode: '',
+    brand: '',
+    basis: 'per_100g',
+    servingSizeText: '',
+    caloriesKcal: null,
+    proteinG: null,
+    carbohydrateG: null,
+    fatG: null,
+    fiberG: null,
+    sugarG: null,
+    sodiumMg: null,
+    defaultServingGrams: null,
+  });
+  labelPhoto.value = '';
+  labelText.value = '';
+  labelConfirmed.value = false;
+  labelMode.value = false;
   foodError.value = '';
   customFoodDialog.value = true;
 }
@@ -619,12 +944,24 @@ async function saveGoals() {
 
 async function saveCustomFood() {
   if (!customFoodDraft.name.trim()) return;
+  if ((labelMode.value || customFoodDraft.barcode) && !labelConfirmed.value) {
+    foodError.value = 'Check every field against the label and confirm before saving.';
+    return;
+  }
   saving.value = true;
   foodError.value = '';
   try {
     const food = (
       await axios.post<{ food: FoodSource }>('/api/v1/nutrition/foods', {
         name: customFoodDraft.name.trim(),
+        barcode: customFoodDraft.barcode || undefined,
+        brand: customFoodDraft.brand,
+        basis: customFoodDraft.basis,
+        servingSizeText: customFoodDraft.servingSizeText,
+        sugarG: nullableNumber(customFoodDraft.sugarG),
+        sodiumMg: nullableNumber(customFoodDraft.sodiumMg),
+        source: labelMode.value || customFoodDraft.barcode ? 'label_scan' : undefined,
+        labelConfirmed: labelConfirmed.value,
         caloriesKcal: nullableNumber(customFoodDraft.caloriesKcal),
         proteinG: nullableNumber(customFoodDraft.proteinG),
         carbohydrateG: nullableNumber(customFoodDraft.carbohydrateG),
@@ -643,8 +980,13 @@ async function saveCustomFood() {
     customFoodDraft.defaultServingGrams = null;
     await loadFoods(foodQuery.value);
     openFood(food);
-  } catch {
-    foodError.value = 'Check the food name and nutrients per 100 g, then try again.';
+  } catch (error) {
+    const data = axios.isAxiosError(error)
+      ? (error.response?.data as { error?: string } | undefined)
+      : undefined;
+    foodError.value =
+      data?.error ||
+      'The food was not saved. Check your connection, name, serving basis, and nutrition values.';
   } finally {
     saving.value = false;
   }
@@ -820,6 +1162,26 @@ onBeforeUnmount(() => {
             @click="scanBarcode"
           />
           <q-btn outline no-caps icon="add" label="My food" @click="openCustomFood" />
+          <template v-if="isAndroid">
+            <q-btn
+              flat
+              no-caps
+              icon="keyboard"
+              label="Enter barcode"
+              @click="
+                manualBarcodeDialog = true;
+                barcodeError = '';
+              "
+            />
+            <q-btn
+              flat
+              no-caps
+              icon="image_search"
+              label="Barcode photo"
+              :loading="barcodeBusy"
+              @click="handleBarcodePhoto"
+            />
+          </template>
         </div>
       </div>
       <input
@@ -909,14 +1271,18 @@ onBeforeUnmount(() => {
           />
           <span class="food-result-main">
             <strong>{{ food.name }}</strong>
+            <span class="nutrition-source-badges"
+              ><span>{{ confidenceLabel(food) }}</span
+              ><span v-if="food.details?.needsReview">Needs review</span></span
+            >
             <small
               >{{ food.category || sourceLabel(food.source) }} · {{ sourceLabel(food.source)
               }}{{ menuImage(food.name, food.source) ? ' · Illustrative photo' : '' }}</small
             >
           </span>
           <span class="food-result-kcal"
-            >{{ formatAmount(food.nutrientsPer100g.caloriesKcal)
-            }}<small> kcal / 100 g</small></span
+            >{{ formatAmount(foodNutrients(food).caloriesKcal)
+            }}<small> kcal {{ foodBasis(food) }}</small></span
           >
           <q-icon name="add_circle_outline" size="22px" class="food-add-icon" />
         </button>
@@ -926,9 +1292,8 @@ onBeforeUnmount(() => {
         <p>No foods found for “{{ foodQuery }}”. Try another search or add your own food.</p>
       </div>
       <p class="source-note">
-        USDA food values and fast-food macros are estimates. Restaurant meals use similar FNDDS
-        foods and approximate portions, so actual values can vary by recipe, branch, and serving
-        size. Barcode product values come from community-reported package labels in Open Food Facts.
+        Check each food's source, serving basis, and confidence badge. Estimates and missing values
+        are labeled. Data from Open Food Facts (ODbL) is community supplied.
       </p>
     </section>
 
@@ -972,7 +1337,12 @@ onBeforeUnmount(() => {
             <div class="meal-entry-main">
               <strong>{{ entry.foodName }}</strong>
               <span
-                >{{ formatAmount(entry.amountGrams, 1) }} g · {{ sourceLabel(entry.source) }}</span
+                >{{
+                  entry.amountServings != null
+                    ? `${formatAmount(entry.amountServings, 1)} serving(s)`
+                    : `${formatAmount(entry.amountGrams, 1)} g`
+                }}
+                · {{ sourceLabel(entry.source) }}</span
               >
             </div>
             <div class="meal-entry-values">
@@ -1016,20 +1386,33 @@ onBeforeUnmount(() => {
           />
         </q-card-section>
         <q-card-section v-if="selectedFood" class="dialog-body">
-          <p class="dialog-source">{{ sourceLabel(selectedFood.source) }} · nutrients per 100 g</p>
+          <p class="dialog-source">
+            {{ sourceLabel(selectedFood.source) }} · nutrients {{ foodBasis(selectedFood) }}
+          </p>
+          <div class="nutrition-source-badges">
+            <span>{{ confidenceLabel(selectedFood) }}</span
+            ><span v-if="selectedFood.details?.needsReview">Needs review</span>
+          </div>
+          <p v-if="selectedFood.details?.servingSizeText" class="source-note">
+            {{ selectedFood.details.servingSizeText }}
+          </p>
           <div class="portion-row">
             <q-input
               v-model.number="amountGrams"
               type="number"
-              min="1"
-              max="5000"
-              suffix="g"
+              :min="selectedFood.basis === 'per_serving' ? 0.1 : 1"
+              :max="selectedFood.basis === 'per_serving' ? 20 : 5000"
+              :suffix="selectedFood.basis === 'per_serving' ? 'servings' : 'g'"
+              step="0.1"
               outlined
               label="Amount"
               inputmode="decimal"
               :disable="saving || foodRetryPending"
             />
-            <div v-if="usablePortions.length" class="portion-buttons">
+            <div
+              v-if="usablePortions.length && selectedFood.basis !== 'per_serving'"
+              class="portion-buttons"
+            >
               <button
                 v-for="portion in usablePortions"
                 :key="`${portion.name}-${portion.grams}`"
@@ -1095,13 +1478,30 @@ onBeforeUnmount(() => {
               <span>Fat</span><strong>{{ estimate(selectedFood, 'fatG') }} g</strong>
             </div>
           </div>
+          <p v-if="selectedFood.details" class="source-note">
+            Sugar: {{ formatAmount(selectedFood.details.sugarG, 1) }} g · Sodium:
+            {{ formatAmount(selectedFood.details.sodiumMg) }} mg {{ foodBasis(selectedFood) }}
+          </p>
+          <p v-if="selectedFood.details?.needsReview" class="inline-error">
+            {{
+              selectedFood.details.reviewReason ||
+              'The item, portion, or source still needs review.'
+            }}
+          </p>
+          <p v-if="selectedFood.details?.notes" class="source-note">
+            {{ selectedFood.details.notes }}
+          </p>
+          <p v-if="selectedFood.details?.sourceUrl" class="source-note">
+            <a :href="selectedFood.details.sourceUrl" target="_blank" rel="noopener noreferrer"
+              >View source</a
+            >
+            · Retrieved {{ selectedFood.details.retrievedAt }}
+          </p>
           <p class="source-note">
             {{
-              selectedFood.source === 'LiftUp PH Menu Estimates'
-                ? 'Restaurant macro estimates use general USDA food equivalents and approximate serving weights; the chains have not published these figures in LiftUp.'
-                : selectedFood.source === 'Open Food Facts'
-                  ? 'Nutrition values are community-reported product-label data. Check the package and serving size before saving.'
-                  : 'Estimate only. The actual nutrition depends on the recipe, ingredients, and weighed portion.'
+              selectedFood.source === 'Open Food Facts'
+                ? 'Data from Open Food Facts (ODbL). Community-supplied label data; check your package.'
+                : 'Check the source, confidence badge, and serving basis. Recipes and actual portions may vary.'
             }}
           </p>
           <p v-if="mealPhoto" class="source-note">
@@ -1117,7 +1517,11 @@ onBeforeUnmount(() => {
             color="primary"
             label="Add to day"
             :loading="saving"
-            :disable="!amountGrams || amountGrams < 1 || amountGrams > 5000"
+            :disable="
+              !amountGrams ||
+              amountGrams < (selectedFood?.basis === 'per_serving' ? 0.1 : 1) ||
+              amountGrams > (selectedFood?.basis === 'per_serving' ? 20 : 5000)
+            "
             @click="addFood"
           />
         </q-card-actions>
@@ -1208,66 +1612,137 @@ onBeforeUnmount(() => {
       </q-card>
     </q-dialog>
 
-    <q-dialog v-model="customFoodDialog" :persistent="saving">
+    <q-dialog v-model="customFoodDialog" :persistent="saving || labelBusy">
       <q-card class="nutrition-dialog">
         <q-card-section class="dialog-heading"
-          ><div><h3>Add a personal food</h3></div>
+          ><div>
+            <h3>{{ labelMode ? 'Add this product' : 'Add a personal food' }}</h3>
+          </div>
           <q-btn
             flat
             round
             dense
             icon="close"
             aria-label="Close custom food form"
-            :disable="saving"
+            :disable="saving || labelBusy"
             @click="customFoodDialog = false"
         /></q-card-section>
         <q-card-section class="goal-form">
           <p class="source-note">
-            Use the nutrition label or a recipe estimate per 100 g. This food is visible only to
-            your account.
+            Use the exact serving basis printed on your label. Blank values mean unknown. This food
+            is visible only to your account; saving the same barcode updates its existing record.
           </p>
+          <div v-if="isAndroid" class="food-photo-controls">
+            <q-btn
+              outline
+              no-caps
+              icon="document_scanner"
+              label="Photograph label"
+              :loading="labelBusy"
+              :disable="saving"
+              @click="handleLabelPhoto('camera')"
+            />
+            <q-btn
+              flat
+              no-caps
+              icon="photo_library"
+              label="Choose label photo"
+              :disable="saving || labelBusy"
+              @click="handleLabelPhoto('photos')"
+            />
+          </div>
+          <img
+            v-if="labelPhoto"
+            :src="labelPhoto"
+            alt="Nutrition Facts panel to review"
+            class="nutrition-label-photo"
+          />
+          <details v-if="labelText">
+            <summary>Recognized text — check against the photo</summary>
+            <pre class="nutrition-label-text">{{ labelText }}</pre>
+          </details>
+          <q-input
+            :disable="saving || labelBusy"
+            v-model="customFoodDraft.barcode"
+            outlined
+            maxlength="14"
+            label="Barcode (optional)"
+            inputmode="numeric"
+          />
           <q-input v-model="customFoodDraft.name" outlined maxlength="120" label="Food name" />
           <q-input
+            :disable="saving || labelBusy"
+            v-model="customFoodDraft.brand"
+            outlined
+            maxlength="100"
+            label="Brand (optional)"
+          />
+          <q-select
+            :disable="saving || labelBusy"
+            v-model="customFoodDraft.basis"
+            emit-value
+            map-options
+            :options="[
+              { label: 'Per serving', value: 'per_serving' },
+              { label: 'Per 100 g', value: 'per_100g' },
+            ]"
+            outlined
+            label="Nutrition basis on the label"
+          />
+          <q-input
+            :disable="saving || labelBusy"
+            v-model="customFoodDraft.servingSizeText"
+            outlined
+            maxlength="100"
+            label="Serving description (e.g. 1 can, 55 g)"
+          />
+          <q-input
+            :disable="saving || labelBusy"
             v-model.number="customFoodDraft.caloriesKcal"
             type="number"
             min="0"
-            max="900"
+            :max="customFoodDraft.basis === 'per_serving' ? 5000 : 900"
             outlined
-            label="Calories (kcal per 100 g)"
+            :label="'Calories (kcal ' + customUnit + ')'"
           />
           <q-input
+            :disable="saving || labelBusy"
             v-model.number="customFoodDraft.proteinG"
             type="number"
             min="0"
-            max="100"
+            :max="customFoodDraft.basis === 'per_serving' ? 1500 : 100"
             outlined
-            label="Protein (g per 100 g)"
+            :label="'Protein (g ' + customUnit + ')'"
           />
           <q-input
+            :disable="saving || labelBusy"
             v-model.number="customFoodDraft.carbohydrateG"
             type="number"
             min="0"
-            max="100"
+            :max="customFoodDraft.basis === 'per_serving' ? 1500 : 100"
             outlined
-            label="Carbs (g per 100 g)"
+            :label="'Carbs (g ' + customUnit + ')'"
           />
           <q-input
+            :disable="saving || labelBusy"
             v-model.number="customFoodDraft.fatG"
             type="number"
             min="0"
-            max="100"
+            :max="customFoodDraft.basis === 'per_serving' ? 1500 : 100"
             outlined
-            label="Fat (g per 100 g)"
+            :label="'Fat (g ' + customUnit + ')'"
           />
           <q-input
+            :disable="saving || labelBusy"
             v-model.number="customFoodDraft.fiberG"
             type="number"
             min="0"
-            max="100"
+            :max="customFoodDraft.basis === 'per_serving' ? 1500 : 100"
             outlined
-            label="Fiber (g per 100 g, optional)"
+            :label="'Fiber (g ' + customUnit + ', optional)'"
           />
           <q-input
+            :disable="saving || labelBusy"
             v-model.number="customFoodDraft.defaultServingGrams"
             type="number"
             min="1"
@@ -1275,7 +1750,31 @@ onBeforeUnmount(() => {
             outlined
             label="Usual serving (g, optional)"
           />
+          <q-input
+            :disable="saving || labelBusy"
+            v-model.number="customFoodDraft.sugarG"
+            type="number"
+            min="0"
+            :max="customFoodDraft.basis === 'per_serving' ? 1500 : 100"
+            outlined
+            :label="'Sugar (g ' + customUnit + ', optional)'"
+          /><q-input
+            :disable="saving || labelBusy"
+            v-model.number="customFoodDraft.sodiumMg"
+            type="number"
+            min="0"
+            max="100000"
+            outlined
+            :label="'Sodium (mg ' + customUnit + ', optional)'"
+          />
           <p v-if="foodError" class="inline-error" role="alert">{{ foodError }}</p>
+          <p v-if="customQualityWarning" class="source-note">{{ customQualityWarning }}</p>
+          <q-checkbox
+            :disable="saving || labelBusy"
+            v-if="labelMode || customFoodDraft.barcode"
+            v-model="labelConfirmed"
+            label="I checked the serving basis and every value against the label, including blank values."
+          />
         </q-card-section>
         <q-card-actions align="right" class="dialog-actions"
           ><q-btn
@@ -1288,11 +1787,57 @@ onBeforeUnmount(() => {
             no-caps
             color="primary"
             label="Save food"
-            :loading="saving"
+            :loading="saving || labelBusy"
+            :disable="
+              labelBusy || ((labelMode || Boolean(customFoodDraft.barcode)) && !labelConfirmed)
+            "
             @click="saveCustomFood"
         /></q-card-actions>
       </q-card>
     </q-dialog>
+
+    <q-dialog v-model="manualBarcodeDialog" :persistent="barcodeBusy"
+      ><q-card class="nutrition-dialog">
+        <q-card-section
+          ><h3>Enter a food barcode</h3>
+          <q-select
+            v-model="manualBarcodeFormat"
+            emit-value
+            map-options
+            :options="[
+              { label: 'EAN / UPC-A', value: '' },
+              { label: 'UPC-E (8 digits)', value: 'UPC_E' },
+            ]"
+            outlined
+            label="Barcode type"
+          /><q-input
+            v-model="manualBarcode"
+            outlined
+            inputmode="numeric"
+            maxlength="14"
+            label="Digits below the barcode"
+            autofocus
+            @keyup.enter="submitManualBarcode"
+          />
+          <p v-if="barcodeError" class="inline-error" role="alert">
+            {{ barcodeError }}
+          </p></q-card-section
+        >
+        <q-card-actions align="right"
+          ><q-btn
+            flat
+            no-caps
+            label="Cancel"
+            :disable="barcodeBusy"
+            @click="manualBarcodeDialog = false" /><q-btn
+            unelevated
+            color="primary"
+            no-caps
+            label="Look up product"
+            :loading="barcodeBusy"
+            @click="submitManualBarcode"
+        /></q-card-actions> </q-card
+    ></q-dialog>
 
     <div
       v-if="barcodeScanActive"
@@ -1302,8 +1847,17 @@ onBeforeUnmount(() => {
     >
       <div class="barcode-scanner-card">
         <strong>Scan a food barcode</strong>
-        <span>Hold the package barcode inside the frame.</span>
+        <span>Hold one barcode steady inside the frame until it is read twice.</span>
         <div class="barcode-scan-frame" aria-hidden="true"></div>
+        <q-btn
+          v-if="torchAvailable"
+          outline
+          no-caps
+          :icon="torchEnabled ? 'flash_off' : 'flash_on'"
+          :label="torchEnabled ? 'Torch off' : 'Torch on'"
+          @click="toggleScannerTorch"
+        />
+        <p v-if="barcodeError" role="alert">{{ barcodeError }}</p>
         <q-btn outline no-caps label="Cancel scan" @click="cancelBarcodeScan" />
       </div>
     </div>
@@ -1315,6 +1869,30 @@ onBeforeUnmount(() => {
   max-width: 1100px;
   margin: 0 auto;
   color: var(--text-primary);
+}
+.nutrition-source-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.nutrition-source-badges > span {
+  padding: 3px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+}
+.nutrition-label-photo {
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.nutrition-label-text {
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 12px;
 }
 .nutrition-heading,
 .section-heading,

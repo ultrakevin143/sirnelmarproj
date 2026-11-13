@@ -25,6 +25,8 @@
   "dependencies": {
     "@bryllim/workout-guide": "^1.0.0",
     "@capacitor-mlkit/barcode-scanning": "^8.2.2",
+    "@capacitor-mlkit/text-recognition": "^8.2.2",
+    "@capacitor/camera": "^8.2.6",
     "@capacitor/core": "^8.6.0",
     "@fontsource/barlow-condensed": "^5.3.0",
     "@fontsource/dm-sans": "^5.3.0",
