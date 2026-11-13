@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import axios from 'axios';
+import { Capacitor } from '@capacitor/core';
 
 type MacroKey = 'caloriesKcal' | 'proteinG' | 'carbohydrateG' | 'fatG' | 'fiberG';
 type MealType = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
@@ -29,6 +30,8 @@ type FoodEntry = {
   carbohydrateG: number;
   fatG: number;
   fiberG: number | null;
+  hasPhoto?: boolean;
+  photoData?: string;
 };
 type WaterEntry = { id: number; amountMl: number; localDate: string; loggedAt: string };
 type DayData = {
@@ -75,9 +78,18 @@ const dayData = ref<DayData | null>(null);
 const foods = ref<FoodSource[]>([]);
 const foodQuery = ref('adobo');
 const activeMeal = ref<MealType>('Breakfast');
+const isAndroid = Capacitor.getPlatform() === 'android';
 const dayLoading = ref(false);
 const foodsLoading = ref(false);
 const saving = ref(false);
+const barcodeBusy = ref(false);
+const barcodeError = ref('');
+const barcodeScanActive = ref(false);
+const mealPhoto = ref('');
+const stagedMealPhoto = ref('');
+const mealPhotoError = ref('');
+const cameraPhotoInput = ref<HTMLInputElement | null>(null);
+const galleryPhotoInput = ref<HTMLInputElement | null>(null);
 const pageError = ref('');
 const pageMessage = ref('');
 const foodError = ref('');
@@ -110,6 +122,7 @@ const customFoodDraft = reactive({
 });
 let dayRequestVersion = 0;
 let foodRequestVersion = 0;
+let stopBarcodeScan: (() => Promise<void>) | null = null;
 
 const today = computed(() => selectedDate.value === localDateToday());
 const dateTitle = computed(() => {
@@ -182,7 +195,20 @@ function formatAmount(value: number | null | undefined, digits = 0) {
 }
 
 function sourceLabel(source: string) {
-  return source === 'USDA FoodData Central' ? 'USDA FNDDS' : 'Personal food';
+  if (source === 'USDA FoodData Central') return 'USDA FNDDS';
+  if (source === 'Open Food Facts') return 'Open Food Facts label';
+  if (source === 'LiftUp PH Menu Estimates') return 'Menu estimate';
+  return 'Personal food';
+}
+
+function menuImage(name: string, source: string) {
+  if (source !== 'LiftUp PH Menu Estimates') return '';
+  if (/spaghetti/i.test(name)) return '/images/meals/spaghetti.jpg';
+  if (/burger/i.test(name)) return '/images/meals/burger.jpg';
+  if (/fries/i.test(name)) return '/images/meals/fries.jpg';
+  if (/Pork BBQ/i.test(name)) return '/images/meals/pork-bbq.jpg';
+  if (/Inasal/i.test(name)) return '/images/meals/grilled-rice.jpg';
+  return '/images/meals/chicken-rice.jpg';
 }
 
 async function loadDay() {
@@ -197,6 +223,7 @@ async function loadDay() {
     });
     if (requestVersion === dayRequestVersion && date === selectedDate.value) {
       dayData.value = response.data;
+      void loadEntryPhotos(response.data.entries, requestVersion);
     }
   } catch {
     if (requestVersion === dayRequestVersion) {
@@ -205,6 +232,23 @@ async function loadDay() {
   } finally {
     if (requestVersion === dayRequestVersion) dayLoading.value = false;
   }
+}
+
+async function loadEntryPhotos(entries: FoodEntry[], requestVersion: number) {
+  await Promise.all(
+    entries
+      .filter((entry) => entry.hasPhoto)
+      .map(async (entry) => {
+        try {
+          const response = await axios.get<{ photoData: string }>(
+            `/api/v1/nutrition/entries/${entry.id}/photo`,
+          );
+          if (requestVersion === dayRequestVersion) entry.photoData = response.data.photoData;
+        } catch {
+          // Keep the meal row useful if a photo is temporarily unavailable.
+        }
+      }),
+  );
 }
 
 async function loadFoods(query: string, requestVersion = ++foodRequestVersion) {
@@ -244,10 +288,15 @@ function openFood(food: FoodSource, meal = activeMeal.value) {
   selectedFood.value = food;
   foodRetryPending.value = false;
   activeMeal.value = meal;
-  const customPortion = food.isCustom
-    ? food.portions.find((item) => item.grams > 0 && item.grams <= 3000)
-    : undefined;
-  amountGrams.value = customPortion ? Math.round(customPortion.grams) : 100;
+  const suggestedPortion = food.portions.find((item) => item.grams > 0 && item.grams <= 3000);
+  const usesServingAmount =
+    food.isCustom ||
+    food.source === 'Open Food Facts' ||
+    food.source === 'LiftUp PH Menu Estimates';
+  amountGrams.value =
+    usesServingAmount && suggestedPortion ? Math.round(suggestedPortion.grams) : 100;
+  mealPhoto.value = stagedMealPhoto.value;
+  mealPhotoError.value = '';
   pendingFoodKey.value = newRequestKey();
   foodDialogError.value = '';
   foodDialog.value = true;
@@ -275,16 +324,29 @@ async function addFood() {
   pageError.value = '';
   pageMessage.value = '';
   try {
+    if (mealPhoto.value) {
+      const support = await axios
+        .get<{ mealPhotos?: boolean }>('/api/v1/nutrition/capabilities')
+        .catch(() => null);
+      if (support?.data.mealPhotos !== true) {
+        foodDialogError.value =
+          'Meal photos are not available on the server yet. Your photo is still here. Try again after the server update, or remove the photo to log this meal.';
+        return;
+      }
+    }
     await axios.post('/api/v1/nutrition/entries', {
       foodId: selectedFood.value.id,
       amountGrams: amountGrams.value,
       localDate: selectedDate.value,
       mealType: activeMeal.value,
       requestKey: pendingFoodKey.value || newRequestKey(),
+      ...(mealPhoto.value ? { photoData: mealPhoto.value } : {}),
     });
     foodRetryPending.value = false;
     foodDialog.value = false;
     pendingFoodKey.value = '';
+    stagedMealPhoto.value = '';
+    mealPhoto.value = '';
     await loadDay();
     pageMessage.value = 'Meal added to your day.';
   } catch (error) {
@@ -331,6 +393,173 @@ async function removeFood(entry: FoodEntry) {
   } catch {
     pageError.value = 'Could not remove that food. Try again.';
   }
+}
+
+function openCameraPhotoPicker() {
+  cameraPhotoInput.value?.click();
+}
+
+function openGalleryPhotoPicker() {
+  galleryPhotoInput.value?.click();
+}
+
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      typeof reader.result === 'string'
+        ? resolve(reader.result)
+        : reject(new Error('Could not read the selected photo.'));
+    reader.onerror = () => reject(new Error('Could not read the selected photo.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function compressMealPhoto(file: File) {
+  if (!file.type.startsWith('image/')) throw new Error('Choose an image file.');
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement('canvas');
+  let longestSide = Math.min(1280, Math.max(bitmap.width, bitmap.height));
+  let quality = 0.82;
+  try {
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      const scale = Math.min(1, longestSide / Math.max(bitmap.width, bitmap.height));
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Could not prepare this photo.');
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', quality),
+      );
+      if (blob && blob.size <= 900 * 1024) return await blobToDataUrl(blob);
+      longestSide = Math.round(longestSide * 0.82);
+      quality = Math.max(0.42, quality - 0.07);
+    }
+  } finally {
+    bitmap.close();
+  }
+  throw new Error('This photo is too large to attach. Choose a smaller photo.');
+}
+
+async function handleMealPhotoSelection(event: Event) {
+  const input = event.currentTarget as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  mealPhotoError.value = '';
+  try {
+    const dataUrl = await compressMealPhoto(file);
+    stagedMealPhoto.value = dataUrl;
+    mealPhoto.value = dataUrl;
+    pageMessage.value = 'Photo ready. Choose a food and save it with your meal.';
+  } catch {
+    mealPhotoError.value = 'Could not prepare this photo. Try another image or a smaller file.';
+  } finally {
+    input.value = '';
+  }
+}
+
+function removeMealPhoto() {
+  mealPhoto.value = '';
+  stagedMealPhoto.value = '';
+  mealPhotoError.value = '';
+}
+
+async function stopActiveBarcodeScan() {
+  const stop = stopBarcodeScan;
+  stopBarcodeScan = null;
+  barcodeScanActive.value = false;
+  document.body.classList.remove('barcode-scanner-active');
+  if (stop) await stop().catch(() => {});
+}
+
+async function lookupBarcode(barcode: string) {
+  try {
+    const response = await axios.post<{ food: FoodSource }>('/api/v1/nutrition/barcode', {
+      barcode,
+    });
+    const food = response.data.food;
+    foods.value = [food, ...foods.value.filter((item) => item.id !== food.id)].slice(0, 60);
+    foodQuery.value = food.name;
+    openFood(food);
+    pageMessage.value =
+      'Scanned product found. Check its serving and nutrition label before saving.';
+  } catch (error) {
+    const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+    const responseError = axios.isAxiosError(error)
+      ? (error.response?.data as { error?: unknown } | undefined)?.error
+      : undefined;
+    barcodeError.value =
+      status === 404
+        ? 'No product was found for that barcode. Search the catalogue or add it as a personal food.'
+        : status === 422
+          ? (typeof responseError === 'string' && responseError) ||
+            'This barcode does not have a complete nutrition panel.'
+          : 'Could not look up this barcode. Check your connection and try again.';
+  }
+}
+
+async function scanBarcode() {
+  if (!isAndroid || barcodeBusy.value) return;
+  barcodeBusy.value = true;
+  barcodeError.value = '';
+  try {
+    const { BarcodeScanner, BarcodeFormat, LensFacing } =
+      await import('@capacitor-mlkit/barcode-scanning');
+    const support = await BarcodeScanner.isSupported();
+    if (!support.supported) {
+      barcodeError.value = 'This phone does not support barcode scanning.';
+      return;
+    }
+    let { camera } = await BarcodeScanner.checkPermissions();
+    if (camera !== 'granted') {
+      ({ camera } = await BarcodeScanner.requestPermissions());
+    }
+    if (camera !== 'granted') {
+      barcodeError.value = 'Allow camera access in LiftUp settings to scan a food barcode.';
+      return;
+    }
+    barcodeScanActive.value = true;
+    document.body.classList.add('barcode-scanner-active');
+    const listener = await BarcodeScanner.addListener('barcodesScanned', ({ barcodes }) => {
+      void (async () => {
+        if (!barcodeScanActive.value) return;
+        const barcode = barcodes[0];
+        if (!barcode) return;
+        const scanned = (barcode.rawValue || barcode.displayValue || '').trim();
+        await stopActiveBarcodeScan();
+        if (!/^\d{8,14}$/.test(scanned)) {
+          barcodeError.value = 'That code is not a supported food product barcode.';
+          barcodeBusy.value = false;
+          return;
+        }
+        await lookupBarcode(scanned);
+        barcodeBusy.value = false;
+      })().catch(() => {
+        barcodeError.value = 'Could not read that barcode. Try scanning it again.';
+        barcodeBusy.value = false;
+      });
+    });
+    stopBarcodeScan = async () => {
+      await listener.remove();
+      await BarcodeScanner.stopScan();
+    };
+    await BarcodeScanner.startScan({
+      formats: [BarcodeFormat.Ean8, BarcodeFormat.Ean13, BarcodeFormat.UpcA, BarcodeFormat.UpcE],
+      lensFacing: LensFacing.Back,
+    });
+  } catch {
+    await stopActiveBarcodeScan();
+    barcodeError.value = 'Could not start the scanner. Check camera access and try again.';
+    barcodeBusy.value = false;
+  } finally {
+    if (!barcodeScanActive.value) barcodeBusy.value = false;
+  }
+}
+
+async function cancelBarcodeScan() {
+  await stopActiveBarcodeScan();
+  barcodeBusy.value = false;
 }
 
 async function removeWater(entry: WaterEntry) {
@@ -437,6 +666,7 @@ onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer);
   dayRequestVersion += 1;
   foodRequestVersion += 1;
+  void stopActiveBarcodeScan();
 });
 </script>
 
@@ -564,8 +794,51 @@ onBeforeUnmount(() => {
         <div>
           <h3>Add food</h3>
         </div>
-        <q-btn outline no-caps icon="add" label="My food" @click="openCustomFood" />
+        <div class="food-search-actions">
+          <q-btn
+            outline
+            no-caps
+            icon="photo_camera"
+            label="Take photo"
+            @click="openCameraPhotoPicker"
+          />
+          <q-btn
+            flat
+            no-caps
+            icon="photo_library"
+            label="Gallery"
+            @click="openGalleryPhotoPicker"
+          />
+          <q-btn
+            v-if="isAndroid"
+            outline
+            no-caps
+            icon="qr_code_scanner"
+            label="Scan barcode"
+            :loading="barcodeBusy"
+            :disable="barcodeBusy || saving"
+            @click="scanBarcode"
+          />
+          <q-btn outline no-caps icon="add" label="My food" @click="openCustomFood" />
+        </div>
       </div>
+      <input
+        ref="cameraPhotoInput"
+        class="meal-photo-input"
+        type="file"
+        accept="image/*"
+        capture="environment"
+        aria-label="Take a meal photo"
+        @change="handleMealPhotoSelection"
+      />
+      <input
+        ref="galleryPhotoInput"
+        class="meal-photo-input"
+        type="file"
+        accept="image/*"
+        aria-label="Choose a meal photo"
+        @change="handleMealPhotoSelection"
+      />
       <q-input
         id="nutrition-search-input"
         v-model="foodQuery"
@@ -576,9 +849,35 @@ onBeforeUnmount(() => {
       >
         <template #prepend><q-icon name="search" /></template>
       </q-input>
+      <div v-if="stagedMealPhoto" class="meal-photo-staged">
+        <img :src="stagedMealPhoto" alt="Meal photo ready to attach" />
+        <div>
+          <strong>Meal photo ready</strong>
+          <span>Choose a food below and save it with your log.</span>
+        </div>
+        <q-btn
+          flat
+          round
+          dense
+          icon="close"
+          aria-label="Remove meal photo"
+          @click="removeMealPhoto"
+        />
+      </div>
+      <p v-if="mealPhotoError" class="inline-error" role="alert">{{ mealPhotoError }}</p>
+      <p v-if="barcodeError" class="inline-error" role="alert">{{ barcodeError }}</p>
       <div class="quick-searches" aria-label="Popular food searches">
         <button
-          v-for="term in ['Adobo', 'Rice', 'Egg', 'Chicken', 'Banana']"
+          v-for="term in [
+            'Adobo',
+            'Rice',
+            'Egg',
+            'Chicken',
+            'Banana',
+            'McDo',
+            'Jollibee',
+            'Mang Inasal',
+          ]"
           :key="term"
           type="button"
           @click="searchFor(term.toLowerCase())"
@@ -601,11 +900,18 @@ onBeforeUnmount(() => {
           class="food-result"
           @click="openFood(food)"
         >
+          <img
+            v-if="menuImage(food.name, food.source)"
+            class="food-menu-image"
+            :src="menuImage(food.name, food.source)"
+            alt="Illustrative meal photo"
+            loading="lazy"
+          />
           <span class="food-result-main">
             <strong>{{ food.name }}</strong>
             <small
-              >{{ food.category || sourceLabel(food.source) }} ·
-              {{ sourceLabel(food.source) }}</small
+              >{{ food.category || sourceLabel(food.source) }} · {{ sourceLabel(food.source)
+              }}{{ menuImage(food.name, food.source) ? ' · Illustrative photo' : '' }}</small
             >
           </span>
           <span class="food-result-kcal"
@@ -620,8 +926,9 @@ onBeforeUnmount(() => {
         <p>No foods found for “{{ foodQuery }}”. Try another search or add your own food.</p>
       </div>
       <p class="source-note">
-        USDA survey values are estimates and may differ from local recipes, brands, and serving
-        sizes. Check the food source before relying on a number.
+        USDA food values and fast-food macros are estimates. Restaurant meals use similar FNDDS
+        foods and approximate portions, so actual values can vary by recipe, branch, and serving
+        size. Barcode product values come from community-reported package labels in Open Food Facts.
       </p>
     </section>
 
@@ -654,6 +961,14 @@ onBeforeUnmount(() => {
         </header>
         <div v-if="entriesByMeal[meal]?.length" class="meal-entries">
           <div v-for="entry in entriesByMeal[meal]" :key="entry.id" class="meal-entry">
+            <img
+              v-if="entry.photoData || menuImage(entry.foodName, entry.source)"
+              class="meal-entry-photo"
+              :src="entry.photoData || menuImage(entry.foodName, entry.source)"
+              :alt="
+                entry.photoData ? `Photo of ${entry.foodName}` : `Illustration of ${entry.foodName}`
+              "
+            />
             <div class="meal-entry-main">
               <strong>{{ entry.foodName }}</strong>
               <span
@@ -735,6 +1050,36 @@ onBeforeUnmount(() => {
             label="Meal"
             :disable="saving || foodRetryPending"
           />
+          <div class="food-photo-controls">
+            <q-btn
+              flat
+              no-caps
+              icon="photo_camera"
+              label="Take photo"
+              :disable="saving"
+              @click="openCameraPhotoPicker"
+            />
+            <q-btn
+              flat
+              no-caps
+              icon="photo_library"
+              label="Choose photo"
+              :disable="saving"
+              @click="openGalleryPhotoPicker"
+            />
+          </div>
+          <div v-if="mealPhoto" class="food-photo-preview">
+            <img :src="mealPhoto" alt="Photo attached to this food log" />
+            <q-btn
+              flat
+              no-caps
+              icon="close"
+              label="Remove photo"
+              :disable="saving"
+              @click="removeMealPhoto"
+            />
+          </div>
+          <p v-if="mealPhotoError" class="inline-error" role="alert">{{ mealPhotoError }}</p>
           <div class="estimate-grid">
             <div>
               <span>Calories</span
@@ -751,8 +1096,16 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <p class="source-note">
-            Estimate only. The actual nutrition depends on the recipe, ingredients, and weighed
-            portion.
+            {{
+              selectedFood.source === 'LiftUp PH Menu Estimates'
+                ? 'Restaurant macro estimates use general USDA food equivalents and approximate serving weights; the chains have not published these figures in LiftUp.'
+                : selectedFood.source === 'Open Food Facts'
+                  ? 'Nutrition values are community-reported product-label data. Check the package and serving size before saving.'
+                  : 'Estimate only. The actual nutrition depends on the recipe, ingredients, and weighed portion.'
+            }}
+          </p>
+          <p v-if="mealPhoto" class="source-note">
+            This photo is saved with your private meal entry.
           </p>
           <p v-if="foodDialogError" class="inline-error" role="alert">{{ foodDialogError }}</p>
         </q-card-section>
@@ -940,6 +1293,20 @@ onBeforeUnmount(() => {
         /></q-card-actions>
       </q-card>
     </q-dialog>
+
+    <div
+      v-if="barcodeScanActive"
+      class="barcode-scanner-modal"
+      role="dialog"
+      aria-label="Barcode scanner"
+    >
+      <div class="barcode-scanner-card">
+        <strong>Scan a food barcode</strong>
+        <span>Hold the package barcode inside the frame.</span>
+        <div class="barcode-scan-frame" aria-hidden="true"></div>
+        <q-btn outline no-caps label="Cancel scan" @click="cancelBarcodeScan" />
+      </div>
+    </div>
   </q-page>
 </template>
 
@@ -1138,6 +1505,46 @@ onBeforeUnmount(() => {
 .section-heading {
   margin-bottom: 15px;
 }
+.food-search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+.meal-photo-input {
+  display: none;
+}
+.meal-photo-staged {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-elevated);
+}
+.meal-photo-staged img {
+  width: 54px;
+  height: 54px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.meal-photo-staged div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.meal-photo-staged strong {
+  font-size: 13px;
+}
+.meal-photo-staged span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
 .section-heading h3 {
   margin-top: 3px;
 }
@@ -1186,6 +1593,30 @@ onBeforeUnmount(() => {
 .food-result:hover {
   border-color: var(--accent-border);
   background: var(--accent-surface);
+}
+.food-menu-image {
+  width: 54px;
+  height: 54px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 8px;
+}
+@media (max-width: 600px) {
+  .food-search-section > .section-heading {
+    flex-wrap: wrap;
+  }
+  .food-search-section > .section-heading h3 {
+    flex: 0 0 100%;
+  }
+  .food-search-actions {
+    justify-content: flex-start;
+  }
+  .food-result {
+    gap: 8px;
+  }
+  .food-result-kcal {
+    min-width: 66px;
+  }
 }
 .food-result-main {
   display: flex;
@@ -1293,6 +1724,13 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
 }
+.meal-entry-photo {
+  width: 58px;
+  height: 58px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 9px;
+}
 .meal-entry-main strong {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1331,6 +1769,55 @@ onBeforeUnmount(() => {
 .goal-form {
   display: grid;
   gap: 14px;
+}
+.food-photo-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0;
+}
+.food-photo-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-elevated);
+}
+.food-photo-preview img {
+  width: 72px;
+  height: 72px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.barcode-scanner-card {
+  display: grid;
+  justify-items: center;
+  gap: 15px;
+  width: min(420px, calc(100vw - 32px));
+  margin: 0 16px 30px;
+  padding: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
+  color: #fff;
+  background: rgba(13, 17, 20, 0.92) !important;
+  text-align: center;
+}
+.barcode-scanner-card strong {
+  font-size: 19px;
+}
+.barcode-scanner-card span {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 13px;
+}
+.barcode-scan-frame {
+  width: min(280px, 78vw);
+  height: 128px;
+  border: 2px solid var(--accent-primary);
+  border-radius: 14px;
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.08);
 }
 .dialog-source {
   margin: 0;

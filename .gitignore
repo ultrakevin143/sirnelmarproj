@@ -5,6 +5,7 @@
 **/backups/
 **/data/*
 !backend-express/src/data/usda-fndds-2021-2023.json
+!backend-express/src/data/ph-fast-food-estimates.json
 **/.tools/
 **/*.sqlite*
 **/*.log

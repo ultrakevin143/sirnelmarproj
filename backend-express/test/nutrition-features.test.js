@@ -3,8 +3,8 @@ const assert = require("node:assert/strict");
 const { once } = require("node:events");
 const { createApp } = require("../src/server");
 
-async function fixture(t) {
-  const service = await createApp({ memory: true });
+async function fixture(t, appOptions = {}) {
+  const service = await createApp({ memory: true, ...appOptions });
   const server = service.app.listen(0, "127.0.0.1");
   await once(server, "listening");
   t.after(async () => {
@@ -56,6 +56,18 @@ test("nutrition catalogue, targets, food and water logs stay account-scoped and 
   assert.ok(
     adobo.data.foods.every((food) => food.source === "USDA FoodData Central"),
   );
+  const mcdo = await alice.request("/api/v1/nutrition/foods?q=McDo");
+  assert.ok(
+    mcdo.data.foods.some(
+      (food) =>
+        food.source === "LiftUp PH Menu Estimates" &&
+        food.name.includes("Chicken McDo, 1 pc with rice"),
+    ),
+  );
+  const jollibee = await alice.request("/api/v1/nutrition/foods?q=Jollibee");
+  assert.ok(jollibee.data.foods.some((food) => food.name.includes("Chickenjoy")));
+  const mangInasal = await alice.request("/api/v1/nutrition/foods?q=Mang%20Inasal");
+  assert.ok(mangInasal.data.foods.some((food) => food.name.includes("Chicken Inasal Paa")));
   const riceAdobo = adobo.data.foods.find(
     (food) => food.name === "Adobo, with rice",
   );
@@ -269,4 +281,107 @@ test("nutrition catalogue, targets, food and water logs stay account-scoped and 
     .get(aliceProfile.id);
   assert.equal(Number(remainingFoods.count), 0);
   assert.equal(Number(remainingGoals.count), 0);
+});
+
+test("barcode nutrition labels and private meal photos are saved with owner-scoped food logs", async (t) => {
+  let lookups = 0;
+  const fetchImpl = async (url, options) => {
+    lookups += 1;
+    assert.match(new URL(url).pathname, /\/api\/v3\/product\/1234567890123$/);
+    assert.match(options.headers["User-Agent"], /^LiftUp\//);
+    return {
+      status: 200,
+      ok: true,
+      async json() {
+        return {
+          status: "success_with_warnings",
+          product: {
+            product_name: "Test oat bar",
+            serving_size: "1 bar",
+            serving_quantity: 35,
+            nutriments: {
+              "energy-kcal_100g": 400,
+              proteins_100g: 10,
+              carbohydrates_100g: 60,
+              fat_100g: 12,
+              fiber_100g: 7,
+            },
+          },
+        };
+      },
+    };
+  };
+  const { register } = await fixture(t, { fetchImpl });
+  const alice = await register("nutrition-barcode-alice@example.test");
+  const bob = await register("nutrition-barcode-bob@example.test");
+
+  const scanned = await alice.request("/api/v1/nutrition/barcode", "POST", {
+    barcode: "1234567890123",
+  });
+  assert.equal(scanned.status, 201);
+  assert.equal(scanned.data.food.source, "Open Food Facts");
+  assert.equal(scanned.data.food.name, "Test oat bar");
+  assert.equal(scanned.data.food.portions[0].grams, 35);
+  const cached = await alice.request("/api/v1/nutrition/barcode", "POST", {
+    barcode: "1234567890123",
+  });
+  assert.equal(cached.status, 200);
+  assert.equal(cached.data.cached, true);
+  assert.equal(lookups, 1);
+
+  const photoData = `data:image/jpeg;base64,${Buffer.from([255, 216, 255, 217]).toString("base64")}`;
+  const saved = await alice.request("/api/v1/nutrition/entries", "POST", {
+    foodId: scanned.data.food.id,
+    amountGrams: 35,
+    localDate: "2026-11-13",
+    mealType: "Lunch",
+    requestKey: "alice-photo-save-0001",
+    photoData,
+  });
+  assert.equal(saved.status, 201);
+  const day = await alice.request("/api/v1/nutrition/entries?date=2026-11-13");
+  assert.equal(day.data.entries[0].hasPhoto, true);
+  const photo = await alice.request(
+    `/api/v1/nutrition/entries/${saved.data.entry.id}/photo`,
+  );
+  assert.equal(photo.status, 200);
+  assert.equal(photo.data.photoData, photoData);
+  assert.equal(
+    (
+      await bob.request(
+        `/api/v1/nutrition/entries/${saved.data.entry.id}/photo`,
+      )
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await alice.request("/api/v1/nutrition/entries", "POST", {
+        foodId: scanned.data.food.id,
+        amountGrams: 35,
+        localDate: "2026-11-13",
+        mealType: "Lunch",
+        requestKey: "alice-photo-invalid-001",
+        photoData: "data:image/png;base64,AAAA",
+      })
+    ).status,
+    422,
+  );
+  assert.equal(
+    (
+      await alice.request(
+        `/api/v1/nutrition/entries/${saved.data.entry.id}`,
+        "DELETE",
+      )
+    ).status,
+    204,
+  );
+  assert.equal(
+    (
+      await alice.request(
+        `/api/v1/nutrition/entries/${saved.data.entry.id}/photo`,
+      )
+    ).status,
+    404,
+  );
 });

@@ -1,0 +1,90 @@
+{
+  "dataset": "LiftUp PH fast-food estimate v1 · USDA FNDDS 2021–2023 equivalents",
+  "foods": [
+    {
+      "sourceId": "mcdo-chicken-mcdo-rice-v1",
+      "name": "McDonald's PH · Chicken McDo, 1 pc with rice (estimate)",
+      "category": "McDonald's Philippines",
+      "serving": "1 pc with rice",
+      "components": [
+        { "sourceId": "2705949", "grams": 135 },
+        { "sourceId": "2708403", "grams": 163 }
+      ]
+    },
+    {
+      "sourceId": "mcdo-burger-mcdo-v1",
+      "name": "McDonald's PH · Burger McDo (estimate)",
+      "category": "McDonald's Philippines",
+      "serving": "1 burger",
+      "components": [{ "sourceId": "2706921", "grams": 90 }]
+    },
+    {
+      "sourceId": "mcdo-medium-fries-v1",
+      "name": "McDonald's PH · Medium Fries (estimate)",
+      "category": "McDonald's Philippines",
+      "serving": "1 medium order",
+      "components": [{ "sourceId": "2709461", "grams": 80 }]
+    },
+    {
+      "sourceId": "mcdo-mcspaghetti-v1",
+      "name": "McDonald's PH · McSpaghetti (estimate)",
+      "category": "McDonald's Philippines",
+      "serving": "1 serving",
+      "components": [{ "sourceId": "2708837", "grams": 250 }]
+    },
+    {
+      "sourceId": "jollibee-chickenjoy-rice-v1",
+      "name": "Jollibee PH · Chickenjoy, 1 pc with rice (estimate)",
+      "category": "Jollibee Philippines",
+      "serving": "1 pc with rice",
+      "components": [
+        { "sourceId": "2705949", "grams": 135 },
+        { "sourceId": "2708403", "grams": 163 }
+      ]
+    },
+    {
+      "sourceId": "jollibee-yumburger-v1",
+      "name": "Jollibee PH · Yumburger (estimate)",
+      "category": "Jollibee Philippines",
+      "serving": "1 burger",
+      "components": [{ "sourceId": "2706921", "grams": 90 }]
+    },
+    {
+      "sourceId": "jollibee-jolly-spaghetti-v1",
+      "name": "Jollibee PH · Jolly Spaghetti (estimate)",
+      "category": "Jollibee Philippines",
+      "serving": "1 serving",
+      "components": [{ "sourceId": "2708837", "grams": 250 }]
+    },
+    {
+      "sourceId": "manginasal-paa-rice-v1",
+      "name": "Mang Inasal · Chicken Inasal Paa with 1 rice (estimate)",
+      "category": "Mang Inasal Philippines",
+      "serving": "Paa + 1 rice",
+      "components": [
+        { "sourceId": "2705945", "grams": 170 },
+        { "sourceId": "2708403", "grams": 163 }
+      ]
+    },
+    {
+      "sourceId": "manginasal-pecho-rice-v1",
+      "name": "Mang Inasal · Chicken Inasal Pecho with 1 rice (estimate)",
+      "category": "Mang Inasal Philippines",
+      "serving": "Pecho + 1 rice",
+      "components": [
+        { "sourceId": "2705969", "grams": 175 },
+        { "sourceId": "2708403", "grams": 163 }
+      ]
+    },
+    {
+      "sourceId": "manginasal-pork-bbq-rice-v1",
+      "name": "Mang Inasal · 2 pc Pork BBQ with rice (estimate)",
+      "category": "Mang Inasal Philippines",
+      "serving": "2 pc + 1 rice",
+      "components": [
+        { "sourceId": "2706399", "grams": 120 },
+        { "sourceId": "2708403", "grams": 163 }
+      ]
+    }
+  ]
+}

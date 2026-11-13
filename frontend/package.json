@@ -24,6 +24,8 @@
   },
   "dependencies": {
     "@bryllim/workout-guide": "^1.0.0",
+    "@capacitor-mlkit/barcode-scanning": "^8.2.2",
+    "@capacitor/core": "^8.6.0",
     "@fontsource/barlow-condensed": "^5.3.0",
     "@fontsource/dm-sans": "^5.3.0",
     "@mediapipe/tasks-vision": "1.1.1",
@@ -35,10 +37,10 @@
     "vue-router": "^5.0.6"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "6.0.8",
     "@eslint/js": "^10.0.1",
     "@quasar/app-vite": "^3.8.1",
     "@types/node": "^22.19.11",
+    "@vitejs/plugin-vue": "6.0.8",
     "@vue/eslint-config-prettier": "^10.2.0",
     "@vue/eslint-config-typescript": "^14.7.0",
     "@vue/test-utils": "^2.5.1",

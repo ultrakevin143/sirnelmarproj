@@ -1,6 +1,7 @@
 node_modules/
 **/data/*
 !src/data/usda-fndds-2021-2023.json
+!src/data/ph-fast-food-estimates.json
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

@@ -512,6 +512,40 @@ body::before {
   padding: 24px 20px 60px;
 }
 
+body.barcode-scanner-active #q-app,
+body.barcode-scanner-active #q-app * {
+  visibility: hidden !important;
+  background-color: transparent !important;
+}
+
+body.barcode-scanner-active {
+  background: transparent !important;
+}
+
+body.barcode-scanner-active::before {
+  display: none !important;
+  background: none !important;
+}
+
+body.barcode-scanner-active #q-app .barcode-scanner-modal,
+body.barcode-scanner-active #q-app .barcode-scanner-modal * {
+  visibility: visible !important;
+}
+
+body.barcode-scanner-active #q-app .barcode-scanner-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.08) !important;
+}
+
+body.barcode-scanner-active #q-app .barcode-scanner-card {
+  background: rgba(13, 17, 20, 0.85) !important;
+}
+
 @media (max-width: 600px) {
   .page-container-inner {
     padding: 16px 14px 60px;

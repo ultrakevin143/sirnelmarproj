@@ -1,9 +1,50 @@
 const foodCatalog = require("./data/usda-fndds-2021-2023.json");
+const restaurantEstimates = require("./data/ph-fast-food-estimates.json");
 
 const SOURCE = foodCatalog.source;
 const RELEASE = `${foodCatalog.dataset} (${foodCatalog.publicationDate})`;
+const MENU_ESTIMATE_SOURCE = "LiftUp PH Menu Estimates";
+const OPEN_FOOD_FACTS_SOURCE = "Open Food Facts";
 const mealTypes = new Set(["Breakfast", "Lunch", "Dinner", "Snack"]);
 const round1 = (number) => Math.round(number * 10) / 10;
+
+function photoFromDataUrl(value) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string") return false;
+  const match = value.match(/^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/);
+  if (!match) return false;
+  const data = Buffer.from(match[1], "base64");
+  const valid =
+    data.length >= 4 &&
+    data.length <= 1024 * 1024 &&
+    data[0] === 255 &&
+    data[1] === 216 &&
+    data.at(-2) === 255 &&
+    data.at(-1) === 217;
+  return valid ? { data: match[1], mimeType: "image/jpeg" } : false;
+}
+
+function nutritionNumber(value) {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function openFoodFactsNutrients(product) {
+  const label = product?.nutriments ?? {};
+  let caloriesKcal = nutritionNumber(label["energy-kcal_100g"]);
+  if (caloriesKcal == null) {
+    const energyKj = nutritionNumber(label["energy_100g"]);
+    if (energyKj != null) caloriesKcal = energyKj / 4.184;
+  }
+  return {
+    caloriesKcal,
+    proteinG: nutritionNumber(label.proteins_100g),
+    carbohydrateG: nutritionNumber(label.carbohydrates_100g),
+    fatG: nutritionNumber(label.fat_100g),
+    fiberG: nutritionNumber(label.fiber_100g),
+  };
+}
 
 function parseJsonArray(value) {
   try {
@@ -105,6 +146,72 @@ async function seedNutritionCatalog(database) {
   });
 }
 
+async function seedRestaurantEstimates(database) {
+  const existing = await database
+    .prepare(
+      `
+    SELECT COUNT(*) AS count FROM nutrition_foods
+    WHERE owner_user_id IS NULL AND source = ?
+  `,
+    )
+    .get(MENU_ESTIMATE_SOURCE);
+  if (Number(existing?.count ?? 0) >= restaurantEstimates.foods.length) return;
+
+  const foodsById = new Map(foodCatalog.foods.map((food) => [food.sourceId, food]));
+  await database.transaction(async () => {
+    const createdAt = new Date().toISOString();
+    for (const recipe of restaurantEstimates.foods) {
+      const parts = recipe.components.map((component) => {
+        const food = foodsById.get(component.sourceId);
+        if (!food) throw new Error(`Fast-food estimate ingredient ${component.sourceId} is missing.`);
+        return {
+          sourceId: food.sourceId,
+          name: food.name,
+          grams: component.grams,
+          nutrients: food.nutrientsPer100g,
+        };
+      });
+      const servingGrams = parts.reduce((total, part) => total + part.grams, 0);
+      const nutrients = Object.fromEntries(
+        ["caloriesKcal", "proteinG", "carbohydrateG", "fatG", "fiberG"].map((key) => {
+          if (parts.some((part) => part.nutrients[key] == null)) return [key, null];
+          const total = parts.reduce(
+            (sum, part) => sum + (part.nutrients[key] * part.grams) / 100,
+            0,
+          );
+          return [key, round1((total / servingGrams) * 100)];
+        }),
+      );
+      await database
+        .prepare(
+          `
+        INSERT INTO nutrition_foods (
+          owner_user_id, source, source_id, source_release, name, category,
+          calories_kcal, protein_g, carbohydrate_g, fat_g, fiber_g,
+          portions_json, components_json, created_at
+        ) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT DO NOTHING
+      `,
+        )
+        .run(
+          MENU_ESTIMATE_SOURCE,
+          recipe.sourceId,
+          restaurantEstimates.dataset,
+          recipe.name,
+          recipe.category,
+          nutrients.caloriesKcal,
+          nutrients.proteinG,
+          nutrients.carbohydrateG,
+          nutrients.fatG,
+          nutrients.fiberG,
+          JSON.stringify([{ name: recipe.serving, grams: servingGrams }]),
+          JSON.stringify(parts.map(({ sourceId, name, grams }) => ({ sourceId, name, grams }))),
+          createdAt,
+        );
+    }
+  });
+}
+
 function validGoalValue(value, max) {
   return (
     value == null ||
@@ -119,17 +226,23 @@ function validRequestKey(value) {
   return typeof value === "string" && value.length >= 8 && value.length <= 100;
 }
 
-function configureNutritionFeatures(app, database, { userId }) {
+function configureNutritionFeatures(app, database, { userId, fetchImpl = globalThis.fetch }) {
   let catalogSeedPromise = null;
   async function ensureCatalog() {
     if (!catalogSeedPromise) {
-      catalogSeedPromise = seedNutritionCatalog(database).catch((error) => {
-        catalogSeedPromise = null;
-        throw error;
-      });
+      catalogSeedPromise = seedNutritionCatalog(database)
+        .then(() => seedRestaurantEstimates(database))
+        .catch((error) => {
+          catalogSeedPromise = null;
+          throw error;
+        });
     }
     await catalogSeedPromise;
   }
+
+  app.get("/api/v1/nutrition/capabilities", (_req, res) => {
+    res.json({ mealPhotos: true, barcodeLookup: true });
+  });
 
   app.get("/api/v1/nutrition/foods", async (req, res) => {
     await ensureCatalog();
@@ -223,6 +336,120 @@ function configureNutritionFeatures(app, database, { userId }) {
       )
       .get(inserted.lastInsertRowid, userId());
     res.status(201).json({ food: foodJson(row) });
+  });
+
+  app.post("/api/v1/nutrition/barcode", async (req, res) => {
+    const barcode = typeof req.body?.barcode === "string" ? req.body.barcode.trim() : "";
+    if (!/^\d{8,14}$/.test(barcode))
+      return res.status(422).json({ error: "Scan a valid food product barcode." });
+    await ensureCatalog();
+    const selectFood = () =>
+      database
+        .prepare(
+          `
+      SELECT id, owner_user_id, source, source_id, source_release, name, category,
+        calories_kcal, protein_g, carbohydrate_g, fat_g, fiber_g, portions_json
+      FROM nutrition_foods WHERE owner_user_id IS NULL AND source = ? AND source_id = ?
+    `,
+        )
+        .get(OPEN_FOOD_FACTS_SOURCE, barcode);
+    const cached = await selectFood();
+    if (cached) return res.json({ food: foodJson(cached), cached: true });
+
+    let response;
+    try {
+      const url = new URL(
+        `https://world.openfoodfacts.org/api/v3/product/${encodeURIComponent(barcode)}`,
+      );
+      url.searchParams.set(
+        "fields",
+        "code,product_name,product_name_en,brands,quantity,serving_size,serving_quantity,nutriments",
+      );
+      response = await fetchImpl(url, {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "LiftUp/1.0.4 (https://liftup-ldlv.onrender.com)",
+        },
+        redirect: "error",
+        signal: AbortSignal.timeout(7000),
+      });
+    } catch {
+      return res.status(503).json({ error: "The barcode catalogue is unavailable. Try again later." });
+    }
+    if (response.status === 404)
+      return res.status(404).json({ error: "No product was found for this barcode." });
+    if (!response.ok)
+      return res.status(503).json({ error: "The barcode catalogue is unavailable. Try again later." });
+
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      return res.status(503).json({ error: "The barcode catalogue returned an unreadable response." });
+    }
+    const product = payload?.product;
+    const successfulStatus =
+      payload?.status === 1 ||
+      (typeof payload?.status === "string" && payload.status.startsWith("success"));
+    if (!product || !successfulStatus)
+      return res.status(404).json({ error: "No product was found for this barcode." });
+    const nutrients = openFoodFactsNutrients(product);
+    if (
+      ![nutrients.caloriesKcal, nutrients.proteinG, nutrients.carbohydrateG, nutrients.fatG].every(
+        (value) => value != null && value >= 0,
+      ) ||
+      nutrients.caloriesKcal > 900 ||
+      [nutrients.proteinG, nutrients.carbohydrateG, nutrients.fatG].some((value) => value > 100) ||
+      (nutrients.fiberG != null && (nutrients.fiberG < 0 || nutrients.fiberG > 100))
+    ) {
+      return res.status(422).json({
+        error: "This product has no complete nutrition panel. Search the food catalogue or enter its label values manually.",
+      });
+    }
+    const name =
+      [product.product_name, product.product_name_en, product.brands]
+        .find((value) => typeof value === "string" && value.trim())
+        ?.trim()
+        .slice(0, 120) ?? "";
+    if (!name)
+      return res.status(422).json({ error: "This barcode has no readable product name." });
+    const servingGrams = nutritionNumber(product.serving_quantity);
+    const portions =
+      servingGrams != null && servingGrams >= 1 && servingGrams <= 3000
+        ? [{
+            name:
+              typeof product.serving_size === "string" && product.serving_size.trim()
+                ? product.serving_size.trim().slice(0, 80)
+                : "1 serving",
+            grams: servingGrams,
+          }]
+        : [];
+    await database
+      .prepare(
+        `
+      INSERT INTO nutrition_foods (
+        owner_user_id, source, source_id, source_release, name, category,
+        calories_kcal, protein_g, carbohydrate_g, fat_g, fiber_g,
+        portions_json, components_json, created_at
+      ) VALUES (NULL, ?, ?, 'Open Food Facts API v3 · product-label data', ?, 'Packaged food', ?, ?, ?, ?, ?, ?, '[]', ?)
+      ON CONFLICT DO NOTHING
+    `,
+      )
+      .run(
+        OPEN_FOOD_FACTS_SOURCE,
+        barcode,
+        name,
+        nutrients.caloriesKcal,
+        nutrients.proteinG,
+        nutrients.carbohydrateG,
+        nutrients.fatG,
+        nutrients.fiberG,
+        JSON.stringify(portions),
+        new Date().toISOString(),
+      );
+    const food = await selectFood();
+    if (!food) return res.status(503).json({ error: "The scanned product could not be saved." });
+    res.status(201).json({ food: foodJson(food), cached: false });
   });
 
   app.get("/api/v1/nutrition/goals", async (_req, res) => {
@@ -322,8 +549,13 @@ function configureNutritionFeatures(app, database, { userId }) {
         source_id AS sourceId, source_release AS sourceRelease, local_date AS localDate,
         logged_at AS loggedAt, meal_type AS mealType, amount_grams AS amountGrams,
         calories_kcal AS caloriesKcal, protein_g AS proteinG,
-        carbohydrate_g AS carbohydrateG, fat_g AS fatG, fiber_g AS fiberG
-      FROM nutrition_entries WHERE user_id = ? AND local_date = ?
+        carbohydrate_g AS carbohydrateG, fat_g AS fatG, fiber_g AS fiberG,
+        CASE WHEN entry_photo.entry_id IS NULL THEN FALSE ELSE TRUE END AS hasPhoto
+      FROM nutrition_entries
+      LEFT JOIN nutrition_entry_photos AS entry_photo
+        ON entry_photo.entry_id = nutrition_entries.id
+        AND entry_photo.user_id = nutrition_entries.user_id
+      WHERE nutrition_entries.user_id = ? AND local_date = ?
       ORDER BY logged_at, id
     `,
       )
@@ -402,6 +634,9 @@ function configureNutritionFeatures(app, database, { userId }) {
         error: "Choose a food, portion, meal, date, and unique save key.",
       });
     }
+    const photo = photoFromDataUrl(body.photoData);
+    if (photo === false)
+      return res.status(422).json({ error: "Choose a valid JPEG image no larger than 1 MB." });
     const prior = await database
       .prepare(
         `
@@ -430,9 +665,10 @@ function configureNutritionFeatures(app, database, { userId }) {
       food[key] == null ? null : round1(Number(food[key]) * scale);
     const now = new Date().toISOString();
     try {
-      const inserted = await database
-        .prepare(
-          `
+      const entry = await database.transaction(async () => {
+        const inserted = await database
+          .prepare(
+            `
         INSERT INTO nutrition_entries (
           user_id, food_id, food_name, source, source_id, source_release,
           local_date, logged_at, meal_type, amount_grams,
@@ -440,28 +676,40 @@ function configureNutritionFeatures(app, database, { userId }) {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id
       `,
-        )
-        .run(
-          userId(),
-          food.id,
-          food.name,
-          food.source,
-          food.source_id,
-          food.source_release,
-          localDate,
-          now,
-          mealType,
-          grams,
-          nutrient("calories_kcal"),
-          nutrient("protein_g"),
-          nutrient("carbohydrate_g"),
-          nutrient("fat_g"),
-          nutrient("fiber_g"),
-          body.requestKey,
-        );
-      const entry = await database
-        .prepare(
-          `
+          )
+          .run(
+            userId(),
+            food.id,
+            food.name,
+            food.source,
+            food.source_id,
+            food.source_release,
+            localDate,
+            now,
+            mealType,
+            grams,
+            nutrient("calories_kcal"),
+            nutrient("protein_g"),
+            nutrient("carbohydrate_g"),
+            nutrient("fat_g"),
+            nutrient("fiber_g"),
+            body.requestKey,
+          );
+        const entryId = inserted.lastInsertRowid;
+        if (photo) {
+          await database
+            .prepare(
+              `
+          INSERT INTO nutrition_entry_photos (entry_id, user_id, mime_type, image_base64, created_at)
+          VALUES (?, ?, ?, ?, ?)
+          RETURNING entry_id
+        `,
+            )
+            .run(entryId, userId(), photo.mimeType, photo.data, now);
+        }
+        return database
+          .prepare(
+            `
         SELECT id, food_id AS foodId, food_name AS foodName, source,
           source_id AS sourceId, source_release AS sourceRelease, local_date AS localDate,
           logged_at AS loggedAt, meal_type AS mealType, amount_grams AS amountGrams,
@@ -469,8 +717,9 @@ function configureNutritionFeatures(app, database, { userId }) {
           carbohydrate_g AS carbohydrateG, fat_g AS fatG, fiber_g AS fiberG
         FROM nutrition_entries WHERE id = ? AND user_id = ?
       `,
-        )
-        .get(inserted.lastInsertRowid, userId());
+          )
+          .get(entryId, userId());
+      });
       res.status(201).json({ entry });
     } catch (error) {
       if (error.code === "23505") {
@@ -489,6 +738,22 @@ function configureNutritionFeatures(app, database, { userId }) {
       }
       throw error;
     }
+  });
+
+  app.get("/api/v1/nutrition/entries/:entryId/photo", async (req, res) => {
+    const entryId = Number(req.params.entryId);
+    if (!Number.isInteger(entryId) || entryId < 1)
+      return res.status(404).json({ error: "Meal photo not found." });
+    const photo = await database
+      .prepare(
+        `
+      SELECT mime_type AS mimeType, image_base64 AS imageBase64
+      FROM nutrition_entry_photos WHERE entry_id = ? AND user_id = ?
+    `,
+      )
+      .get(entryId, userId());
+    if (!photo) return res.status(404).json({ error: "Meal photo not found." });
+    res.json({ photoData: `data:${photo.mimeType};base64,${photo.imageBase64}` });
   });
 
   app.delete("/api/v1/nutrition/entries/:entryId", async (req, res) => {

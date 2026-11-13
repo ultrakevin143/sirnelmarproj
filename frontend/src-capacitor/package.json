@@ -4,6 +4,7 @@
   "description": "Quasar Capacitor Folder",
   "private": true,
   "dependencies": {
+    "@capacitor-mlkit/barcode-scanning": "^8.2.2",
     "@capacitor/android": "8.6.0",
     "@capacitor/app": "8.1.2",
     "@capacitor/cli": "8.6.0",
