@@ -3,7 +3,8 @@
 **/.env.*
 !**/.env.example
 **/backups/
-**/data/
+**/data/*
+!backend-express/src/data/usda-fndds-2021-2023.json
 **/.tools/
 **/*.sqlite*
 **/*.log

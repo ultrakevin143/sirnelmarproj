@@ -1,13 +1,13 @@
 <template>
   <router-view />
   <aside
-    v-if="apiConnectionMessage || apiConnectionError"
+    v-if="apiConnectionError"
     class="connection-notice"
     role="status"
     aria-live="polite"
   >
-    <p>{{ apiConnectionMessage || apiConnectionError }}</p>
-    <button v-if="!apiConnectionMessage" type="button" @click="reconnect">Retry connection</button>
+    <p>{{ apiConnectionError }}</p>
+    <button type="button" @click="reconnect">Retry connection</button>
   </aside>
 </template>
 
@@ -15,7 +15,7 @@
 import { onMounted } from 'vue';
 import { useTheme } from '@/composables/useTheme';
 import { useAuth } from '@/composables/useAuth';
-import { apiConnectionMessage, apiConnectionError } from '@/utils/apiAvailability';
+import { apiConnectionError } from '@/utils/apiAvailability';
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';

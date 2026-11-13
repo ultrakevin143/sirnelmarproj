@@ -24,6 +24,7 @@ This is a continuation of the existing LiftUp school project. The instructor acc
 
 - Existing stack: Vue 3, Quasar, TypeScript, Express, PostgreSQL, and a documented Neon database setup.
 - Existing capabilities include accounts, weekly plans, workout set logging, exercise guides, history search and date filters, training insights, settings, rest timer, CSV export, plate calculator, and an experimental push-up counter.
+- Optional nutrition tracking supports daily food and water logs, personal targets, account-only custom foods, and a bundled USDA FNDDS food catalogue. Photo recognition and barcode scanning are not part of this release.
 - Server-backed features need an internet connection in the proposed hosted setup. Existing local drafts do not provide an offline synchronization queue.
 - The user selected free hosting first on November 3, 2026.
 - The user confirmed retaining LiftUp's existing design and features for the Android adaptation.

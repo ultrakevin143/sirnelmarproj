@@ -1,5 +1,6 @@
 node_modules/
-data/
+**/data/*
+!src/data/usda-fndds-2021-2023.json
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

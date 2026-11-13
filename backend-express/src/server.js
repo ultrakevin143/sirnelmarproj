@@ -7,6 +7,7 @@ const { configureAuth } = require('./auth');
 const { badgeHistory, historyCsv } = require('./history');
 const { configureCameraSets } = require('./camera-sets');
 const { configureTrainingFeatures, readSettings } = require('./training-features');
+const { configureNutritionFeatures } = require('./nutrition-features');
 const { hostingOptions, validateFrontend, serveFrontend } = require('./hosting');
 
 const requestUser = new AsyncLocalStorage();
@@ -188,6 +189,7 @@ async function createApp({ schema, testSchema, memory = false, ...deployment } =
   configureCameraSets(app, database, userId, serializeWorkout);
   configureTrainingFeatures(app, database, { userId, serializeWorkout, getActiveWorkout,
     readPlan: () => readDefaultPlan(database), insertPlan: (plan) => insertImportedPlan(database, plan) });
+  configureNutritionFeatures(app, database, { userId });
   app.get('/api/health', (_req, res) => res.json({ status: 'ok', service: 'gym-tracker-api' }));
 
   app.get('/api/v1/exercises', async (req, res) => {

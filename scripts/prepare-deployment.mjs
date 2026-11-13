@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const destination = path.join(root, 'artifacts/render-deployment');
 const excluded = new Set([
-  '.git', 'node_modules', '.quasar', 'dist', '.tools', 'backups', 'data', '.gradle', '.kotlin', 'build',
+  '.git', 'node_modules', '.quasar', 'dist', '.tools', 'backups', '.gradle', '.kotlin', 'build',
   '.vscode', '.idea', '.DS_Store', '.thumbs.db', 'Thumbs.db', 'capacitor-cordova-android-plugins',
 ]);
 function include(source) {

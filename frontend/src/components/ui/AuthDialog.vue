@@ -240,6 +240,9 @@
       <p v-if="authError || connectionError" class="auth-error" role="alert">
         {{ authError || connectionError }}
       </p>
+      <p v-else-if="busy && apiConnectionMessage" class="auth-status" role="status">
+        {{ apiConnectionMessage }}
+      </p>
     </div>
   </q-dialog>
 </template>
@@ -250,7 +253,7 @@ import axios from 'axios';
 import { useRouter } from 'vue-router';
 import { useAuth, type ExperienceLevel } from '@/composables/useAuth';
 import LiftUpLogo from './LiftUpLogo.vue';
-import { LiftUpConnectionError } from '@/utils/apiAvailability';
+import { LiftUpConnectionError, apiConnectionMessage } from '@/utils/apiAvailability';
 
 const { authDialogOpen, authDialogMode, closeAuthDialog, register, login, connectionError } =
   useAuth();
@@ -306,6 +309,11 @@ const handleLogin = () => submitAuth('login');
   border: 1px solid var(--danger-primary);
   border-radius: var(--radius-sm);
   padding: 10px;
+  font-size: 13px;
+}
+.auth-status {
+  color: var(--text-secondary);
+  margin: 10px 0 0;
   font-size: 13px;
 }
 .auth-dialog-card {

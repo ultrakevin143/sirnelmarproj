@@ -84,8 +84,7 @@
           :aria-current="currentTab === 'workout' ? 'page' : undefined"
           @click="navigateTo('workout')"
         >
-          <q-icon name="fitness_center" size="16px" class="q-mr-xs" />
-          Workout
+          <q-icon name="fitness_center" size="16px" class="q-mr-xs" />Workout
         </button>
         <button
           class="nav-segment-btn"
@@ -93,8 +92,15 @@
           :aria-current="currentTab === 'plan' ? 'page' : undefined"
           @click="navigateTo('plan')"
         >
-          <q-icon name="calendar_today" size="16px" class="q-mr-xs" />
-          Plan
+          <q-icon name="calendar_today" size="16px" class="q-mr-xs" />Plan
+        </button>
+        <button
+          class="nav-segment-btn"
+          :class="{ active: currentTab === 'nutrition' }"
+          :aria-current="currentTab === 'nutrition' ? 'page' : undefined"
+          @click="navigateTo('nutrition')"
+        >
+          <q-icon name="restaurant" size="16px" class="q-mr-xs" />Nutrition
         </button>
         <button
           class="nav-segment-btn"
@@ -102,8 +108,7 @@
           :aria-current="currentTab === 'library' ? 'page' : undefined"
           @click="navigateTo('library')"
         >
-          <q-icon name="menu_book" size="16px" class="q-mr-xs" />
-          Exercises
+          <q-icon name="menu_book" size="16px" class="q-mr-xs" />Exercises
         </button>
         <button
           class="nav-segment-btn"
@@ -111,8 +116,7 @@
           :aria-current="currentTab === 'history' ? 'page' : undefined"
           @click="navigateTo('history')"
         >
-          <q-icon name="insights" size="16px" class="q-mr-xs" />
-          History
+          <q-icon name="insights" size="16px" class="q-mr-xs" />History
         </button>
       </nav>
 
@@ -165,8 +169,7 @@
         :aria-current="currentTab === 'workout' ? 'page' : undefined"
         @click="navigateTo('workout')"
       >
-        <q-icon name="fitness_center" />
-        <span>Workout</span>
+        <q-icon name="fitness_center" /><span>Workout</span>
       </button>
       <button
         class="dock-item"
@@ -174,8 +177,15 @@
         :aria-current="currentTab === 'plan' ? 'page' : undefined"
         @click="navigateTo('plan')"
       >
-        <q-icon name="calendar_today" />
-        <span>Plan</span>
+        <q-icon name="calendar_today" /><span>Plan</span>
+      </button>
+      <button
+        class="dock-item"
+        :class="{ active: currentTab === 'nutrition' }"
+        :aria-current="currentTab === 'nutrition' ? 'page' : undefined"
+        @click="navigateTo('nutrition')"
+      >
+        <q-icon name="restaurant" /><span>Nutrition</span>
       </button>
       <button
         class="dock-item"
@@ -183,8 +193,7 @@
         :aria-current="currentTab === 'library' ? 'page' : undefined"
         @click="navigateTo('library')"
       >
-        <q-icon name="menu_book" />
-        <span>Exercises</span>
+        <q-icon name="menu_book" /><span>Exercises</span>
       </button>
       <button
         class="dock-item"
@@ -192,8 +201,7 @@
         :aria-current="currentTab === 'history' ? 'page' : undefined"
         @click="navigateTo('history')"
       >
-        <q-icon name="insights" />
-        <span>History</span>
+        <q-icon name="insights" /><span>History</span>
       </button>
     </nav>
   </q-layout>
@@ -227,6 +235,7 @@ const logoutError = ref('');
 const currentTab = computed(() => {
   if (route.path.includes('/settings')) return 'settings';
   if (route.path.includes('/camera')) return 'tools';
+  if (route.path.includes('/nutrition')) return 'nutrition';
   if (route.path.includes('/history')) {
     return 'history';
   }
@@ -236,8 +245,10 @@ const currentTab = computed(() => {
   return 'workout';
 });
 
-function navigateTo(tab: 'workout' | 'plan' | 'library' | 'history') {
-  if (tab === 'history') {
+function navigateTo(tab: 'workout' | 'plan' | 'library' | 'history' | 'nutrition') {
+  if (tab === 'nutrition') {
+    void router.push('/app/nutrition');
+  } else if (tab === 'history') {
     void router.push('/app/history');
   } else {
     void router.push({ path: '/app', query: tab === 'workout' ? {} : { tab } });
