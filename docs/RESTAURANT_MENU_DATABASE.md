@@ -57,3 +57,11 @@ Use a spacious restaurant meal list with market, restaurant and category filters
 - https://mcdonalds.com.ph/our-food/fries
 - https://mcdonalds.com.ph/our-food/breakfast
 - https://mcdonalds.com.ph/our-food/drinks-desserts
+
+## Live verification completed 14 November 2026
+
+- Release `f4afdc3` deployed successfully. Health check and hosted source-image/illustration requests returned HTTP 200 with image content types. All 78 distinct external image URLs also passed verification.
+- Initial live import inserted 176 items. Repeat import inserted zero items; all 176 IDs and creation dates remained stable. There are 187 source observations, zero duplicate item identities and zero duplicate source/item references.
+- Every item has an image reference. Brand/market counts are McDo PH 55, Jollibee PH six, Mang Inasal PH three and Jollibee US 112.
+- Full-table checksums of the pre-existing nutrition foods and meal logs matched before and after both imports. A verified backup was retained under the private backend backups directory.
+- Six targeted catalogue/quality tests passed. All three catalogue tests passed on real PostgreSQL in an isolated schema, which was removed afterward. Tests cover stable repeat imports, source priority, market separation, serving units, unknown values, nutrient bounds and image references.
