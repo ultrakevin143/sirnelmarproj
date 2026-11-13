@@ -57,5 +57,7 @@ Android version 1.0.5 (code 6) adds the native OCR plugin. Install this APK for 
 
 - All 129 frontend tests passed; the three barcode/label-parser tests were also repeated after the picker change. Type checking and targeted lint passed.
 - All six backend nutrition tests passed. The PostgreSQL integration check passed in an isolated schema and cleaned it up.
-- Native Android 1.0.5 built and installed successfully on the Samsung A73. Direct native OCR and the label parsing pipeline read the sample label correctly. The phone disconnected before the final native photo-picker UI check; that device check remains pending.
+- Native Android 1.0.5 built and installed successfully on the Samsung A73. Direct native OCR and the label parsing pipeline read the sample label correctly. After reconnecting, the actual native picker and in-app label flow passed: all eight expected values and the serving basis matched the test label, and confirmation stayed unchecked. The rear camera, torch, scanner cancellation, and barcode-photo decoding also passed.
 - Live verification confirmed UPC/EAN saves reuse the same food ID, serving-based meal logging, and photo persistence. The temporary verification account was removed.
+
+Final live audit: 34 imported PH records, 34 unique identities, zero duplicate identities or barcodes within a scope, and four archived US McDonald’s overlaps. Menus contain 26 McDo, six Jollibee, and three Mang Inasal entries; the phone also rendered 26 unique McDo results. Temporary sample images were removed. No sample meal or custom food was saved to the phone account.
